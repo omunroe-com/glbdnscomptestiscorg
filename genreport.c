@@ -432,7 +432,7 @@ dotest(struct workitem *item) {
 			freeitem(item);
 			return;
 		}
-
+ 
 		item->buf[0] = id >> 8;
 		item->buf[1] = id & 0xff;
 		item->id = id;
@@ -562,6 +562,7 @@ dolookup(struct workitem *item, int type) {
 	item->summary->tests++;
 	item->summary->type = item->type = type;
 
+ again:
 	if (servers[item->test].sin.sin_family == AF_INET)
 		memcpy(&item->summary->storage, &servers[item->test].sin,
 		       sizeof(servers[item->test].sin));
@@ -579,6 +580,8 @@ dolookup(struct workitem *item, int type) {
 	}
 
 	if (fd == -1) {
+		if (++item->test < nservers)
+			goto again;
 		addtag(item, "skipped");
 		freeitem(item);
 		return;
@@ -1100,9 +1103,9 @@ connectdone(int fd) {
 	if (item == NULL)
 		return;
 
-        optlen = sizeof(cc);
-        if (getsockopt(item->tcpfd, SOL_SOCKET, SO_ERROR,
-                       (void *)&cc, (void *)&optlen) < 0)
+	optlen = sizeof(cc);
+	if (getsockopt(item->tcpfd, SOL_SOCKET, SO_ERROR,
+		       (void *)&cc, (void *)&optlen) < 0)
 		cc = errno;
 	if (cc != 0) {
 		if (cc == ECONNRESET)
@@ -1246,6 +1249,58 @@ udpread(int fd) {
 	process(item, buf, n);
 }
 
+static void
+nextserver(struct workitem *item) {
+	struct sockaddr_storage storage;
+	int id, tries;
+	
+ again:
+	if (++item->test > nservers) {
+		addtag(item, "timeout");
+		freeitem(item);
+		return;
+	}
+
+	switch(servers[item->test].sin.sin_family) {
+	case AF_INET:
+		if (udp4 == -1)
+			goto again;
+		memcpy(&storage, &servers[item->test].sin,
+		       sizeof(servers[item->test].sin));
+		break;
+	case AF_INET6:
+		if (udp6 == -1)
+			goto again;
+		memcpy(&storage, &servers[0].sin6,
+		       sizeof(servers[item->test].sin6));
+		break;
+	default:
+		goto again;
+	}
+
+	/*
+	 * Find a new query id if required.
+	 */
+	id = item->id;
+	tries = 0;
+	while (!checkid(&storage, id) && tries++ < 0xffff)
+		id = (id + 1) & 0xffff;
+	if (tries == 0xffff) 
+		goto again;
+
+	if (id != item->id) {
+		UNLINK(ids[item->id], item, idlink);
+		item->buf[0] = id >> 8;
+		item->buf[1] = id & 0xff;
+		item->id = id;
+		APPEND(ids[item->id], item, idlink);
+	}
+
+	item->summary->storage = storage;
+	item->sends = 0;
+	resend(item);
+}
+
 int
 main(int argc, char **argv) {
 	struct timeval now, to, *tpo = NULL;
@@ -1329,6 +1384,8 @@ main(int argc, char **argv) {
 				break;
 			if (item->sends < 3) {
 				resend(item);
+			} else if (item->type) {
+				nextserver(item);
 			} else {
 				addtag(item, "timeout");
 				freeitem(item);
