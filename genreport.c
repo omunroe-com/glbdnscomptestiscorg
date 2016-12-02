@@ -1,19 +1,29 @@
+/*
+ * Copyright (C) 2016  Internet Systems Consortium, Inc. ("ISC")
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
-#include <resolv.h>
-#include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <stdlib.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
-#include <errno.h>
-#include <unistd.h>
 #include <sys/uio.h>
+
+#include <errno.h>
 #include <netdb.h>
+#include <resolv.h>
 
 #define ns_t_rrsig 46
 #define ns_t_dnskey 48
