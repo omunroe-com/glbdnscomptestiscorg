@@ -1348,15 +1348,13 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "aa"), ok = 0;
 	if (ra && opts[item->test].opcode)
 		addtag(item, "ra"), ok = 0;
-	if (rd &&
-	    (opts[item->test].opcode || !opts[item->test].rd))
+	if (rd && (opts[item->test].opcode || !opts[item->test].rd))
 		addtag(item, "rd"), ok = 0;
 	if (!rd && opts[item->test].rd)
 		addtag(item, "nord"), ok = 0;
-	if (ad &&
-	    (opts[item->test].opcode || !opts[item->test].ad))
+	if (ad && (opts[item->test].opcode || !opts[item->test].ad))
 		addtag(item, "ad"), ok = 0;
-	if (cd)
+	if (cd && (opts[item->test].opcode || !opts[item->test].cd))
 		addtag(item, "cd"), ok = 0;
 	if (z)
 		addtag(item, "z"), ok = 0;
