@@ -47,6 +47,7 @@ static int ipv6only = 0;
 static int debug = 0;
 static int what = 0;
 static int inorder = 0;
+static int serial  = 0;
 
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
@@ -196,6 +197,7 @@ struct summary {
 	char ns[1024];			/* the server's name */
 	struct sockaddr_storage storage;/* server we are talking to */
 	int tests;			/* number of outstanding tests */
+	int last;			/* last test sent */
 	int deferred;			/* was the printing deferred */
 	int done;			/* we are done */
 	int type;			/* recursive query lookup type */
@@ -250,6 +252,9 @@ static struct {
 	struct workitem *head;
 	struct workitem *tail;
 } work, connecting, reading, ids[0x10000];
+
+static void
+dotest(struct workitem *item);
 
 static void
 nextserver(struct workitem *item);
@@ -414,6 +419,28 @@ printandfree(struct summary *summary) {
 
 static void
 report(struct summary *summary) {
+
+	/*
+	 * Send the next test now that we have completed the last test.
+	 */
+	if (serial && summary->type == 0 && summary->tests == 1) {
+		unsigned int i = summary->last + 1;
+		for (; i < sizeof(opts)/sizeof(opts[0]); i++) {
+			struct workitem *item;
+			if (opts[i].what != 0 && (opts[i].what & what) == 0) {
+				summary->last = i;
+				continue;
+			}
+
+			item = calloc(1, sizeof(*item));
+			if (item == NULL)
+				continue;
+			item->summary = summary;
+			item->summary->last = item->test = i;
+			dotest(item);
+			return;
+		}
+	}
 
 	/*
 	 * Have all the tests completed?
@@ -787,8 +814,10 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 			break;
 		item->summary = summary;
 		item->summary->tests++;
-		item->test = i;
+		item->summary->last = item->test = i;
 		dotest(item);
+		if (serial)
+			break;
 	}
 	report(summary);	/* Release reference. */
 }
@@ -1546,7 +1575,7 @@ connecttoserver(struct workitem *item) {
 		if (fd > maxfd)
 			maxfd = fd;
 		gettimeofday(&item->when, NULL);
-		item->when.tv_sec += 60;
+		item->when.tv_sec += 10;
 		APPEND(connecting, item, clink);
 		return;
 	}
@@ -1763,7 +1792,7 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46cdfom:s:")) != -1) {
+	while ((n = getopt(argc, argv, "46cdfom:r:s")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -1775,10 +1804,11 @@ main(int argc, char **argv) {
 				maxoutstanding = n;
 			  break;
 		case 'o': inorder = 1; break;
-		case 's': addserver(optarg); break;
+		case 'r': addserver(optarg); break;
+		case 's': serial = 1; break;
 		default:
-			printf("usage: genreport [-4|-6|-c|-d|-f|-o] [-m maxoutstanding] "
-			       "[-s server]\n");
+			printf("usage: genreport [-4|-6|-c|-d|-f|-o|-s] [-m maxoutstanding] "
+			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
 			printf("\t-c: add common queries\n");
@@ -1786,7 +1816,8 @@ main(int argc, char **argv) {
 			printf("\t-f: add full mode tests\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
-			printf("\t-s: use specified recursive server\n");
+			printf("\t-s: serialize tests\n");
+			printf("\t-r: use specified recursive server\n");
 			exit(0);
 		}
 	}
