@@ -112,23 +112,23 @@ static struct {
 	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
 	{ "ednsopt",   EDNS,  4, "\x00\x64\x00",
-			             4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns1opt",  EDNS,  4, "\x00\x64\x00",
-			             4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "do",        EDNS,  4, "\0\144\0",
-			             4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "optlist",   EDNS,  4 + 8 + 4 + 12,
 	  "\x00\x03\x00\x00" 		     /* NSID */
 	  "\x00\x08\x00\x04\x00\x01\x00\x00" /* ECS */
 	  "\x00\x09\x00\x00" 		     /* EXPIRE */
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",	/* COOKIE */
-	                             4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "bind11",    COMM, 12,
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-	                             4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-	                             4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
 	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
 	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
 	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
@@ -216,7 +216,7 @@ storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
 	case AF_INET:
 		sin1 = (struct sockaddr_in *)s1;
 		sin2 = (struct sockaddr_in *)s2;
-			
+
 		if (sin1->sin_port != sin2->sin_port ||
 		    sin1->sin_addr.s_addr != sin2->sin_addr.s_addr)
 			return (0);
@@ -315,7 +315,7 @@ report(struct summary *summary) {
 		free(summary);
 		return;
 	}
-	
+
 	if (summary->type != 0 && summary->nxdomain) {
 		if (summary->type == ns_t_ns) {
 			printf("%s.: NS nxdomain\n", summary->zone);
@@ -348,12 +348,17 @@ report(struct summary *summary) {
 		return;
 	}
 
+	if (summary->type != 0) {
+		free(summary);
+		return;
+	}
+
 	switch (summary->storage.ss_family) {
 	case AF_INET: addr = &s->sin_addr; break;
 	case AF_INET6: addr = &s6->sin6_addr; break;
 	default: addr = NULL; break;
 	}
-	
+
 	if (addr == NULL)
 		strlcpy(addrbuf, "<unknown>", sizeof(addrbuf));
 	else
@@ -534,7 +539,7 @@ dotest(struct workitem *item) {
 		item->buf[3] |= 0x20;	/* set ad */
 	if (opts[item->test].cd)
 		item->buf[3] |= 0x10;	/* set cd */
-		
+
 	if (n > 0) {
 		char name[1024];
 		/*
@@ -545,7 +550,7 @@ dotest(struct workitem *item) {
 		strlcpy(item->summary->zone, name,
 			sizeof(item->summary->zone));
 	}
-	
+
 	/*
 	 * Add OPT record if required by test.
 	 */
@@ -578,13 +583,13 @@ dotest(struct workitem *item) {
 		while (!checkid(&item->summary->storage, id) &&
 		       tries++ < 0xffff)
 			id = (id + 1) & 0xffff;
-		
+
 		if (tries == 0xffff) {
 			addtag(item, "skipped");
 			freeitem(item);
 			return;
 		}
- 
+
 		item->buf[0] = id >> 8;
 		item->buf[1] = id & 0xff;
 		item->id = id;
@@ -643,7 +648,7 @@ check(char *zone, char *ns, char *address) {
 	struct in6_addr addr6;
 	struct sockaddr_storage storage;
 	struct summary *summary;
-	
+
 	memset(&storage, 0, sizeof(storage));
 	if (inet_pton(AF_INET6, address, &addr6) == 1) {
 		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&storage;
@@ -757,7 +762,7 @@ dolookup(struct workitem *item, int type) {
 		freeitem(item);
 		return;
 	}
-	
+
 	if (type == ns_t_ns)
 		n = res_mkquery(ns_o_query, item->summary->zone, ns_c_in,
 				type, NULL, 0, NULL,
@@ -793,7 +798,7 @@ dolookup(struct workitem *item, int type) {
 		while (!checkid(&item->summary->storage, id) &&
 		       tries++ < 0xffff)
 			id = (id + 1) & 0xffff;
-		
+
 		if (tries == 0xffff) {
 			addtag(item, "skipped");
 			freeitem(item);
@@ -927,7 +932,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	unsigned int qrcount, ancount, aucount, adcount;
 	unsigned int opcode, rcode;
 	unsigned int type, ednssize = 0, class, ednsttl = 0, ttl, rdlen;
-	unsigned char *cp, *eom; 	
+	unsigned char *cp, *eom;
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
 	int seenecho = 0;
@@ -1246,7 +1251,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "cookie");
 	if (seenecs)
 		addtag(item, "subnet");
-		
+
 	goto done;
  err:
 	addtag(item, "malformed");
@@ -1281,11 +1286,11 @@ tcpread(int fd) {
 			addtag(item, "reset");
 		else if (errno == EPIPE)
 			addtag(item, "pipe");
-		else 
+		else
 			addtag(item, "read");
 		freeitem(item);
 		return;
-	} 
+	}
 	item->read += n;
 	if (item->read == item->readlen) {
 		if (!item->havelen) {
@@ -1421,7 +1426,7 @@ connecttoserver(struct workitem *item) {
 		item->when.tv_sec += 60;
 		APPEND(connecting, item, clink);
 		return;
-	} 
+	}
 	if (n == -1) {
 		if (errno == ECONNRESET)
 			addtag(item, "reset");
@@ -1523,7 +1528,7 @@ static void
 nextserver(struct workitem *item) {
 	struct sockaddr_storage storage;
 	int id, tries;
-	
+
  again:
 	if (++item->test > nservers) {
 		addtag(item, "timeout");
@@ -1555,7 +1560,7 @@ nextserver(struct workitem *item) {
 	tries = 0;
 	while (!checkid(&storage, id) && tries++ < 0xffff)
 		id = (id + 1) & 0xffff;
-	if (tries == 0xffff) 
+	if (tries == 0xffff)
 		goto again;
 
 	if (id != item->id) {
@@ -1575,7 +1580,7 @@ static void
 addserver(const char *hostname) {
 	int n;
 	struct addrinfo hints, *res, *res0;
-	
+
 	if (nservers < 10) {
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = PF_UNSPEC;
@@ -1645,7 +1650,7 @@ main(int argc, char **argv) {
 	 * If we haven't been given recursive servers to use the
 	 * get the system's default servers.
 	 */
-	if (!nservers) 
+	if (!nservers)
 		nservers = res_getservers(&_res, servers,
 					  sizeof(servers)/sizeof(servers[0]));
 
@@ -1680,10 +1685,10 @@ main(int argc, char **argv) {
 		if (n > 0) {
 			for (fd = 0; fd <= maxfd; fd++) {
 				if (FD_ISSET(fd, &myrfds) &&
-				    rhandlers[fd] != NULL) 
+				    rhandlers[fd] != NULL)
 					(*rhandlers[fd])(fd);
 				if (FD_ISSET(fd, &mywfds) &&
-				    whandlers[fd] != NULL) 
+				    whandlers[fd] != NULL)
 					(*whandlers[fd])(fd);
 			}
 		}
