@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/uio.h>
+#include <netdb.h>
 
 #define ns_t_rrsig 46
 #define ns_t_dnskey 48
@@ -28,7 +29,9 @@ static void(*whandlers[FD_SETSIZE])(int);
 
 static int udp4 = -1;
 static int udp6 = -1;
+
 static int debug = 0;
+static int what = 0;
 
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
@@ -64,8 +67,13 @@ static int nservers = 0;
 #define HEAD(list) (list).head
 #define TAIL(list) (list).tail
 
+#define EDNS 0x0
+#define COMM 0x1
+#define FULL 0x2
+
 static struct {
 	const char *name;
+	unsigned int what;
 	unsigned short rdlen;
 	const char *rdata;
 	unsigned short udpsize;
@@ -73,6 +81,7 @@ static struct {
 	unsigned short version;
 	unsigned int tcp;
 	unsigned int ignore;
+	unsigned int tc;
 	unsigned int rd;
 	unsigned int ra;
 	unsigned int cd;
@@ -82,41 +91,40 @@ static struct {
 	unsigned int opcode;
 	unsigned short type;
 } opts[] = {
-	{ "dns",       0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns",      0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1",     0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns@512",  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
-	{ "ednsopt",   4, "\x00\x64\x00",
-			      4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1opt",  4, "\x00\x64\x00",
-			      4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "do",        4, "\0\144\0",
-			      4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednsflags", 0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "optlist",   4 + 8 + 4 + 12,
+	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "ednsopt",   EDNS,  4, "\x00\x64\x00",
+			             4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1opt",  EDNS,  4, "\x00\x64\x00",
+			             4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "do",        EDNS,  4, "\0\144\0",
+			             4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "optlist",   EDNS,  4 + 8 + 4 + 12,
 	  "\x00\x03\x00\x00" 		     /* NSID */
 	  "\x00\x08\x00\x04\x00\x01\x00\x00" /* ECS */
 	  "\x00\x09\x00\x00" 		     /* EXPIRE */
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",	/* COOKIE */
-	                      4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-#ifdef common
-	{ "bind",     12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-	                      4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "dig",      12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-	                      4096, 0x0000, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
-#endif
-#ifdef full
-	{ "zflag",     0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
-	{ "aa",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
-	{ "ad",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
-	{ "cd",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
-	{ "ra",        0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "rd",        0, "",    0, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "opcode",    0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
-	{ "opcodeflg", 0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 15, 0 },
-	{ "type666",   0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
-#endif
-	{ "ednstcp",   0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey }
+	                             4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "bind11",    COMM, 12,
+	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	                             4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	                             4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
+	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
+	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
+	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
+	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
+	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
+	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
+	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
+	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey }
 };
 
 struct summary {
@@ -293,6 +301,8 @@ report(struct summary *summary) {
 	x = -1;
 	printf("%s. @%s (%s.):", summary->zone, addrbuf, summary->ns);
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+		if (opts[i].what != 0 && (opts[i].what & what) == 0)
+			continue;
 		if (summary->results[i][0] == 0)
 			strcpy(summary->results[i], "skipped");
 		if (strcmp(opts[i].name, "do") == 0)
@@ -430,12 +440,20 @@ dotest(struct workitem *item) {
 		if (opts[item->test].opcode == 15)
 			item->buf[4] = item->buf[5] = 0;
 	}
+	if (opts[item->test].tc)
+		item->buf[2] |= 0x2;	/* set tc */
 	if (opts[item->test].rd)
 		item->buf[2] |= 0x1;	/* set rd */
 	else
 		item->buf[2] &= ~0x1;	/* clear rd */
-	if (opts[item->test].z)	/* set z */
-		item->buf[3] |= 0x40;
+	if (opts[item->test].ra)
+		item->buf[3] |= 0x80;	/* set ra */
+	if (opts[item->test].z)
+		item->buf[3] |= 0x40;	/* set z */
+	if (opts[item->test].ad)
+		item->buf[3] |= 0x20;	/* set ad */
+	if (opts[item->test].cd)
+		item->buf[3] |= 0x10;	/* set cd */
 		
 	if (n > 0) {
 		char name[1024];
@@ -568,6 +586,8 @@ check(char *zone, char *ns, char *address) {
 	if (i) summary->ns[i-1] = 0;
 
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+		if (opts[i].what != 0 && (opts[i].what & what) == 0)
+			continue;
 		struct workitem *item = calloc(1, sizeof(*item));
 
 		if (item == NULL) {
@@ -1396,6 +1416,30 @@ nextserver(struct workitem *item) {
 	resend(item);
 }
 
+static void
+addserver(const char *hostname) {
+	int n;
+	struct addrinfo hints, *res, *res0;
+	
+	if (nservers < 10) {
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = PF_UNSPEC;
+		hints.ai_socktype = SOCK_DGRAM;
+		hints.ai_protocol = IPPROTO_UDP;
+		hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICSERV;
+		if (getaddrinfo(hostname, "53", &hints, &res) == 0) {
+			res0 = res;
+			while (res && nservers < 10) {
+				memcpy(&servers[nservers++].sin,
+				       res->ai_addr, res->ai_addrlen);
+				res = res->ai_next;
+			}
+			freeaddrinfo(res0);
+		}
+	}
+}
+
+
 int
 main(int argc, char **argv) {
 	struct timeval now, to, *tpo = NULL;
@@ -1406,8 +1450,19 @@ main(int argc, char **argv) {
 	int nfds = 0;
 	int done = 0;
 
-	if (argc > 1)
-		debug = 1;
+	res_init();
+
+	while ((n = getopt(argc, argv, "cdfs:")) != -1) {
+		switch (n) {
+		case 'c': what |= COMM; break;
+		case 'd': debug = 1; break;
+		case 'f': what |= FULL; break;
+		case 's': addserver(optarg); break;
+		default:
+			printf("usage: genreport [-c|-d|-f] [-s address]\n");
+			exit(0);
+		}
+	}
 
 	FD_ZERO(&rfds);
 	FD_ZERO(&wfds);
@@ -1432,9 +1487,9 @@ main(int argc, char **argv) {
 		rhandlers[udp6] = udpread;
 	}
 
-	res_init();
-	nservers = res_getservers(&_res, servers,
-				  sizeof(servers)/sizeof(servers[0]));
+	if (!nservers) 
+		nservers = res_getservers(&_res, servers,
+					  sizeof(servers)/sizeof(servers[0]));
 
 	do {
 		FD_COPY(&rfds, &myrfds);
