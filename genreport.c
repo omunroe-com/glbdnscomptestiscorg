@@ -1880,13 +1880,14 @@ main(int argc, char **argv) {
 	struct timeval now, to, *tpo = NULL;
 	struct workitem *item = NULL, *citem, *ritem;
 	fd_set myrfds, mywfds;
+	unsigned int i;
 	int n;
 	int fd;
 	int nfds = 0;
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46cdfom:r:st")) != -1) {
+	while ((n = getopt(argc, argv, "46cdefi:m:opr:st")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -1894,6 +1895,12 @@ main(int argc, char **argv) {
 		case 'd': debug = 1; break;
 		case 'e': what |= EDNS; break;
 		case 'f': what |= EDNS | FULL; break;
+		case 'i': what = EXPL;
+			  for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+				if (strcasecmp(opts[i].name, optarg) == 0)
+					opts[i].what |= EXPL;
+			  }
+			  break;
 		case 'm': n = strtol(optarg, &end, 10);
 			  if (*end == '0' && n > 10)
 				maxoutstanding = n;
@@ -1912,9 +1919,10 @@ main(int argc, char **argv) {
 			printf("\t-d: enable debugging\n");
 			printf("\t-e: edns test\n");
 			printf("\t-f: add full mode tests (incl edns)\n");
+			printf("\t-i: individual test\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
-			printf("\t-o: parallelize tests\n");
+			printf("\t-p: parallelize tests\n");
 			printf("\t-r: use specified recursive server\n");
 			printf("\t-s: serialize tests\n");
 			printf("\t-t: type tests (serial)\n");
