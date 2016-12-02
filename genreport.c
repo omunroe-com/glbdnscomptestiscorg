@@ -1691,19 +1691,26 @@ main(int argc, char **argv) {
 	int fd;
 	int nfds = 0;
 	int done = 0;
+	char *end;
 
-	while ((n = getopt(argc, argv, "cdfos:")) != -1) {
+	while ((n = getopt(argc, argv, "cdfom:s:")) != -1) {
 		switch (n) {
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
 		case 'f': what |= FULL; break;
+		case 'm': n = strtol(optarg, &end, 10);
+			  if (*end == '0' && n > 10)
+				maxoutstanding = n;
+			  break;
 		case 'o': inorder = 1; break;
 		case 's': addserver(optarg); break;
 		default:
-			printf("usage: genreport [-c|-d|-f|-o] [-s server]\n");
+			printf("usage: genreport [-c|-d|-f|-o] [-m maxoutstanding] "
+			       "[-s server]\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
 			printf("\t-f: add full mode tests\n");
+			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
 			printf("\t-s: use specified recursive server\n");
 			exit(0);
