@@ -85,6 +85,7 @@ static int nservers = 0;
 		(before)->link.prev = (item); \
 		(item)->link.prev->link.next = (item); \
 		(item)->link.next = (before); \
+		(item)->link.linked = 1; \
 	} \
 } while (0)
 
@@ -467,7 +468,8 @@ report(struct summary *summary) {
  */
 static void
 freeitem(struct workitem * item) {
-	report(item->summary);
+	if (item->summary)
+		report(item->summary);
 	if (item->tcpfd != 0) {
 		FD_CLR(item->tcpfd, &rfds);
 		FD_CLR(item->tcpfd, &wfds);
@@ -718,7 +720,7 @@ dotest(struct workitem *item) {
  * Start a series of tests.
  */
 static void
-check(char *zone, char *ns, char *address) {
+check(char *zone, char *ns, char *address, struct summary *parent) {
 	size_t i;
 	int fd;
 	struct in_addr addr;
@@ -750,7 +752,12 @@ check(char *zone, char *ns, char *address) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
-	APPEND(summaries, summary, link);
+
+	summary->tests++;
+	if (parent)
+		INSERTBEFORE(summaries, parent, summary, link);
+	else
+		APPEND(summaries, summary, link);
 
 	summary->storage = storage;
 
@@ -768,17 +775,14 @@ check(char *zone, char *ns, char *address) {
 			continue;
 
 		item = calloc(1, sizeof(*item));
-		if (item == NULL) {
-			summary->tests++;
-			report(summary);
+		if (item == NULL)
 			break;
-		}
-
-		summary->tests++;
 		item->summary = summary;
+		item->summary->tests++;
 		item->test = i;
 		dotest(item);
 	}
+	report(summary);
 }
 
 static char *
@@ -930,10 +934,6 @@ lookupa(char *zone, char *ns, struct summary *parent) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return (NULL);
-	if (parent)
-		INSERTBEFORE(summaries, parent, summary, link);
-	else
-		APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -945,12 +945,16 @@ lookupa(char *zone, char *ns, struct summary *parent) {
 
 	item = calloc(1, sizeof(*item));
 	if (item == NULL) {
-		freesummary(summary);
-		while ((summary = HEAD(summaries)) && summary->deferred)
-			printandfree(summary);
+		free(summary);
+		return (NULL);
 	}
+	if (parent)
+		INSERTBEFORE(summaries, parent, summary, link);
+	else
+		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	summary->tests++;
 	dolookup(item, ns_t_a);
 	return (summary);
 }
@@ -970,10 +974,6 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return (NULL);
-	if (parent)
-		INSERTBEFORE(summaries, parent, summary, link);
-	else
-		APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -985,12 +985,16 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 
 	item = calloc(1, sizeof(*item));
 	if (item == NULL) {
-		freesummary(summary);
-		while ((summary = HEAD(summaries)) && summary->deferred)
-			printandfree(summary);
+		free(summary);
+		return (NULL);
 	}
+	if (parent)
+		INSERTBEFORE(summaries, parent, summary, link);
+	else
+		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	summary->tests++;
 	dolookup(item, ns_t_aaaa);
 	return (summary);
 }
@@ -1007,7 +1011,6 @@ lookupns(char *zone) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
-	APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -1015,11 +1018,11 @@ lookupns(char *zone) {
 
 	item = calloc(1, sizeof(*item));
 	if (item == NULL) {
-		freesummary(summary);
-		while ((summary = HEAD(summaries)) && summary->deferred)
-			printandfree(summary);
+		free(summary);
+		return;
 	}
 
+	APPEND(summaries, summary, link);
 	item->summary = summary;
 	dolookup(item, ns_t_ns);
 }
@@ -1152,7 +1155,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			if (rdlen != 4)
 				goto err;
 			inet_ntop(AF_INET, cp, addrbuf, sizeof(addrbuf));
-			check(item->summary->zone, item->summary->ns, addrbuf);
+			check(item->summary->zone, item->summary->ns, addrbuf,
+			      item->summary);
 			item->summary->done = 1;
 		}
 		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
@@ -1161,7 +1165,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			if (rdlen != 16)
 				goto err;
 			inet_ntop(AF_INET6, cp, addrbuf, sizeof(addrbuf));
-			check(item->summary->zone, item->summary->ns, addrbuf);
+			check(item->summary->zone, item->summary->ns, addrbuf,
+			      item->summary);
 			item->summary->done = 1;
 		}
 		if (item->type == ns_t_ns && type == ns_t_ns &&
@@ -1184,6 +1189,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 				summarya->xlink = summaryaaaa;
 				summaryaaaa->xlink = summarya;
 			}
+			if (summarya) report(summarya);
+			if (summaryaaaa) report(summaryaaaa);
 		}
 		cp += rdlen;
 		if (type == ns_t_soa &&
@@ -1578,7 +1585,7 @@ readstdin(int fd) {
 	}
 	n = sscanf(line, "%1024s%1024s%1024s", zone, ns, address);
 	if (n == 3)
-		check(zone, ns, address);
+		check(zone, ns, address, NULL);
 	if (n == 2) {
 		struct summary *summarya, *summaryaaaa;
 
@@ -1592,6 +1599,8 @@ readstdin(int fd) {
 			summarya->xlink = summaryaaaa;
 			summaryaaaa->xlink = summarya;
 		}
+		if (summarya) report(summarya);
+		if (summaryaaaa) report(summaryaaaa);
 	}
 	if (n == 1)
 		lookupns(zone);
