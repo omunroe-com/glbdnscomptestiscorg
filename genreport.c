@@ -252,6 +252,9 @@ static struct {
 } work, connecting, reading, ids[0x10000];
 
 static void
+nextserver(struct workitem *item);
+
+static void
 connecttoserver(struct workitem *item);
 
 static void
@@ -548,6 +551,8 @@ resend(struct workitem *item) {
 		item->sends++;
 		UNLINK(work, item, link);
 		APPEND(work, item, link);
+	} else if (item->summary->type) {
+		nextserver(item);
 	} else {
 		addtag(item, "failed");
 		freeitem(item);
@@ -885,8 +890,7 @@ dolookup(struct workitem *item, int type) {
 			id = (id + 1) & 0xffff;
 
 		if (tries == 0xffff) {
-			addtag(item, "skipped");
-			freeitem(item);
+			nextserver(item);
 			return;
 		}
 
@@ -916,10 +920,8 @@ dolookup(struct workitem *item, int type) {
 		item->sends++;
 		APPEND(work, item, link);
 		APPEND(ids[item->id], item, idlink);
-	} else {
-		addtag(item, "skipped");
-		freeitem(item);
-	}
+	} else 
+		nextserver(item);
 }
 
 /*
@@ -1654,6 +1656,28 @@ static void
 nextserver(struct workitem *item) {
 	struct sockaddr_storage storage;
 	int id, tries;
+
+	/*
+	 * If we are in TCP mode cleanup.
+	 */
+	if (item->tcpfd != 0) {
+		FD_CLR(item->tcpfd, &rfds);
+		FD_CLR(item->tcpfd, &wfds);
+		rhandlers[item->tcpfd] = NULL;
+		whandlers[item->tcpfd] = NULL;
+		close(item->tcpfd);
+		item->tcpfd = 0;
+	}
+
+	/*
+	 * Ensure we are on all the correct lists.
+	 */
+	if (LINKED(item, rlink))
+		UNLINK(reading, item, rlink);
+	if (LINKED(item, clink))
+		UNLINK(connecting, item, clink);
+	if (!LINKED(item, link))
+		UNLINK(work, item, clink);
 
  again:
 	if (++item->test > nservers) {
