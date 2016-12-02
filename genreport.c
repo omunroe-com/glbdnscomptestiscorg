@@ -177,12 +177,12 @@ struct summary {
 		struct summary *next;
 		int linked;
 	} link;
-	char zone[1024];
-	char ns[1024];
-	struct sockaddr_storage storage;
+	char zone[1024];		/* the zone's name */
+	char ns[1024];			/* the server's name */
+	struct sockaddr_storage storage;/* server we are talking to */
 	int tests;			/* number of outstanding tests */
 	int deferred;			/* was the printing deferred */
-	int done;
+	int done;			/* we are done */
 	int type;			/* recursive query lookup type */
 	int nodataa;			/* recursive query got nodata */
 	int nodataaaaa;			/* recursive query got nodata */
@@ -205,22 +205,21 @@ struct workitem {
 		struct workitem *prev;
 		int linked;
 	} link, clink, rlink, idlink;
-	unsigned short id;
-	struct timeval when;
-	int type;
+	unsigned short id;		/* the query id we are waiting for */
+	struct timeval when;		/* when we will timeout */
+	int type;			/* the query type being looked up */
 	int test;			/* test number / server number */
 	int sends;			/* number of times this UDP request
 					 * has been sent */
-	int buflen;
-	int tcpfd;
+	int buflen;			/* the size of the request to be sent */
+	int tcpfd;			/* the tcp file descriptor */
 	int outstanding;		/* outstanding has been set */
 	int havelen;			/* readlen is tcp message length */
-	int readlen;
-	int read;
-	unsigned char buf[512];
-	unsigned char tcpbuf[0x10000];
-	char result[100];
-	struct summary *summary;
+	int readlen;			/* how much we need to read */
+	int read;			/* how much has been read so far */
+	unsigned char buf[512];		/* the question we sent */
+	unsigned char tcpbuf[0x10000];	/* where to accumulate the tcp response */
+	struct summary *summary;	/* where this test is summaried */
 };
 
 /*
