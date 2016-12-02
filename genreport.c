@@ -1807,7 +1807,7 @@ main(int argc, char **argv) {
 		case 'r': addserver(optarg); break;
 		case 's': serial = 1; break;
 		default:
-			printf("usage: genreport [-4|-6|-c|-d|-f|-o|-s] [-m maxoutstanding] "
+			printf("usage: genreport [-46cdfos] [-m maxoutstanding] "
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
@@ -1816,8 +1816,8 @@ main(int argc, char **argv) {
 			printf("\t-f: add full mode tests\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
-			printf("\t-s: serialize tests\n");
 			printf("\t-r: use specified recursive server\n");
+			printf("\t-s: serialize tests\n");
 			exit(0);
 		}
 	}
