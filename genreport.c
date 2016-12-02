@@ -1704,7 +1704,7 @@ main(int argc, char **argv) {
 			printf("usage: genreport [-c|-d|-f|-o] [-s server]\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
-			printf("\t-f: add full tests\n");
+			printf("\t-f: add full mode tests\n");
 			printf("\t-o: inorder output\n");
 			printf("\t-s: use specified recursive server\n");
 			exit(0);
