@@ -26,8 +26,37 @@
 #include <netdb.h>
 #include <resolv.h>
 
+#define ns_t_dname 39
+#define ns_t_sink 40
+#define ns_t_apl 42
+#define ns_t_ds 43
+#define ns_t_sshfp 44
+#define ns_t_ipseckey 45
 #define ns_t_rrsig 46
+#define ns_t_nsec 47
 #define ns_t_dnskey 48
+#define ns_t_dhcid 49
+#define ns_t_nsec3 50
+#define ns_t_nsec3param 51
+#define ns_t_tlsa 52
+#define ns_t_hip 55
+#define ns_t_ninfo 56
+#define ns_t_talink 58
+#define ns_t_openpgpkey 59
+#define ns_t_cds 59
+#define ns_t_cdnskey 60
+#define ns_t_csync 62
+#define ns_t_spf 99
+#define ns_t_nid 104
+#define ns_t_l32 105
+#define ns_t_l34 106
+#define ns_t_lp 107
+#define ns_t_eui48 108
+#define ns_t_eui64 109
+#define ns_t_uri 256
+#define ns_t_caa 257
+#define ns_t_ta 32768
+#define ns_t_dlv 32769
 
 static int eof = 0;
 static int maxfd = -1;
@@ -45,7 +74,6 @@ static int ipv4only = 0;
 static int ipv6only = 0;
 
 static int debug = 0;
-static int what = 0;
 static int inorder = 0;
 static int serial  = 0;
 
@@ -113,9 +141,13 @@ static int nservers = 0;
 /*
  * Test groupings
  */
-#define EDNS 0x0
-#define COMM 0x1
-#define FULL 0x2
+#define EDNS 0x01
+#define COMM 0x02
+#define FULL 0x04
+#define TYPE 0x08
+#define EXPL 0x10
+
+static int what = EDNS;
 
 static struct {
 	const char *name;		/* test nmemonic */
@@ -148,7 +180,7 @@ static struct {
 	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
 	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
 	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
-	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
+	{ "type666",   EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
 	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 
 	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
@@ -181,7 +213,69 @@ static struct {
 	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
 				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,  0, ns_t_soa }
+				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,  0, ns_t_soa },
+	{ "A",         TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
+	{ "NS",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
+	{ "MD",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
+	{ "MF",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
+	{ "CNAME",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
+	{ "SOA",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "MB",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
+	{ "MG",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
+	{ "MR",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
+	{ "NULL",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
+	{ "WKS",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
+	{ "PTR",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
+	{ "HINFO",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
+	{ "MINFO",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
+	{ "MX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
+	{ "TXT",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
+	{ "RP",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
+	{ "AFSDB",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
+	{ "X25",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
+	{ "ISDN",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
+	{ "RT",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
+	{ "NSAP",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
+	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
+	{ "SIG",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
+	{ "KEY",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
+	{ "PX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
+	{ "GPOS",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
+	{ "AAAA",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
+	{ "LOC",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
+	{ "NXT",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
+	{ "SRV",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
+	{ "NAPTR",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
+	{ "KX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
+	{ "CERT",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
+	{ "A6",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
+	{ "DNAME",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
+	{ "APL",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
+	{ "DS",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
+	{ "SSHFP",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
+	{ "IPSECKEY",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
+	{ "RRSIG",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
+	{ "NSEC",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
+	{ "DNSKEY",    TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "DHCID",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
+	{ "NSEC3",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
+	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
+	{ "TLSA",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
+	{ "HIP",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
+	{ "CDS",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
+	{ "CDNSKEY",   TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
+	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
+	{ "SPF",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
+	{ "NID",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
+	{ "L32",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
+	{ "L64",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
+	{ "LP",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
+	{ "EUI48",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
+	{ "EUI64",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
+	{ "URI",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
+	{ "CAA",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
+	{ "DLV",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
+	{ "TYPE1000",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
 };
 
 /*
@@ -1792,20 +1886,23 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46cdfom:r:s")) != -1) {
+	while ((n = getopt(argc, argv, "46cdfom:r:st")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
-		case 'f': what |= FULL; break;
+		case 'e': what |= EDNS; break;
+		case 'f': what |= EDNS | FULL; break;
 		case 'm': n = strtol(optarg, &end, 10);
 			  if (*end == '0' && n > 10)
 				maxoutstanding = n;
 			  break;
 		case 'o': inorder = 1; break;
+		case 'p': serial = 0; break;
 		case 'r': addserver(optarg); break;
 		case 's': serial = 1; break;
+		case 't': what = TYPE; serial = 1; break;
 		default:
 			printf("usage: genreport [-46cdfos] [-m maxoutstanding] "
 			       "[-r server]\n");
@@ -1813,11 +1910,14 @@ main(int argc, char **argv) {
 			printf("\t-6: IPv6 servers only\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
-			printf("\t-f: add full mode tests\n");
+			printf("\t-e: edns test\n");
+			printf("\t-f: add full mode tests (incl edns)\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
+			printf("\t-o: parallelize tests\n");
 			printf("\t-r: use specified recursive server\n");
 			printf("\t-s: serialize tests\n");
+			printf("\t-t: type tests (serial)\n");
 			exit(0);
 		}
 	}
