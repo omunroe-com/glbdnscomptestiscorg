@@ -135,6 +135,7 @@ static struct {
 	unsigned int opcode;		/* use opcode for request */
 	unsigned short type;		/* query type code */
 } opts[] = {
+	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
 	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
 	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
@@ -147,6 +148,8 @@ static struct {
 	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
 	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
 	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+
+	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
 	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
@@ -170,11 +173,13 @@ static struct {
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns1cook", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+
+	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
 	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
 				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
-	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey }
+				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,  0, ns_t_soa }
 };
 
 /*
