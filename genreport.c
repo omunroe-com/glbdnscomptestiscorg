@@ -32,7 +32,7 @@
 static int eof = 0;
 static int maxfd = -1;
 static fd_set rfds, wfds;
-static int outstanding;
+static int outstanding = 0;
 static int maxoutstanding = 100;
 
 static void(*rhandlers[FD_SETSIZE])(int);
@@ -40,6 +40,9 @@ static void(*whandlers[FD_SETSIZE])(int);
 
 static int udp4 = -1;
 static int udp6 = -1;
+
+static int ipv4only = 0;
+static int ipv6only = 0;
 
 static int debug = 0;
 static int what = 0;
@@ -915,6 +918,9 @@ lookupa(char *zone, char *ns, struct summary *parent) {
 	struct workitem *item;
 	unsigned int i;
 
+	if (ipv6only)
+		return (NULL);
+
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return (NULL);
@@ -951,6 +957,9 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 	struct summary *summary;
 	struct workitem *item;
 	unsigned int i;
+
+	if (ipv6only)
+		return (NULL);
 
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
@@ -1672,6 +1681,10 @@ addserver(const char *hostname) {
 	if (nservers < 10) {
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = PF_UNSPEC;
+		if (ipv4only)
+			hints.ai_family = PF_INET;
+		if (ipv6only)
+			hints.ai_family = PF_INET6;
 		hints.ai_socktype = SOCK_DGRAM;
 		hints.ai_protocol = IPPROTO_UDP;
 		hints.ai_flags = AI_ADDRCONFIG | AI_NUMERICSERV;
@@ -1698,8 +1711,10 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "cdfom:s:")) != -1) {
+	while ((n = getopt(argc, argv, "46cdfom:s:")) != -1) {
 		switch (n) {
+		case '4': ipv4only = 1; ipv6only = 0; break;
+		case '6': ipv6only = 1; ipv4only = 0; break;
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
 		case 'f': what |= FULL; break;
@@ -1710,8 +1725,10 @@ main(int argc, char **argv) {
 		case 'o': inorder = 1; break;
 		case 's': addserver(optarg); break;
 		default:
-			printf("usage: genreport [-c|-d|-f|-o] [-m maxoutstanding] "
+			printf("usage: genreport [-4|-6|-c|-d|-f|-o] [-m maxoutstanding] "
 			       "[-s server]\n");
+			printf("\t-4: IPv4 servers only\n");
+			printf("\t-6: IPv6 servers only\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
 			printf("\t-f: add full mode tests\n");
@@ -1729,7 +1746,8 @@ main(int argc, char **argv) {
 	maxfd = 0;
 	rhandlers[0] = readstdin;
 
-	udp4 = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (!ipv6only)
+		udp4 = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (udp4 >= 0) {
 		FD_SET(udp4, &rfds);
 		if (udp4 > maxfd)
@@ -1737,7 +1755,8 @@ main(int argc, char **argv) {
 		rhandlers[udp4] = udpread;
 	}
 
-	udp6 = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+	if (!ipv4only)
+		udp6 = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (udp6 >= 0) {
 		FD_SET(udp6, &rfds);
 		if (udp6 > maxfd)
