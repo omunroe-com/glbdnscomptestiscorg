@@ -177,6 +177,13 @@ struct workitem {
 	struct summary *summary;
 };
 
+/*
+ * Work queues.
+ *	'work' udp qeries;
+ *	'connecting' tcp qeries;
+ *	'reading' tcp qeries;
+ *	'ids' in flight queries by qid lists;
+ */
 static struct {
 	struct workitem *head;
 	struct workitem *tail;
@@ -259,6 +266,7 @@ report(struct summary *summary) {
 		free(summary);
 		return;
 	}
+
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->nxdomaina && summary->nxdomainaaaa) {
 		printf("%s. %s: no address records found (NXDOMAIN)\n",
@@ -272,11 +280,6 @@ report(struct summary *summary) {
 		return;
 	}
 	
-	if (summary->storage.ss_family == AF_INET)
-		addr = &s->sin_addr;
-	else
-		addr = &s6->sin6_addr;
-	inet_ntop(summary->storage.ss_family, addr, addrbuf, sizeof(addrbuf));
 	if (summary->type != 0 && summary->nxdomain) {
 		if (summary->type == ns_t_ns) {
 			printf("%s.: NS nxdomain\n", summary->zone);
@@ -308,13 +311,26 @@ report(struct summary *summary) {
 		free(summary);
 		return;
 	}
+
+	switch (summary->storage.ss_family) {
+	case AF_INET: addr = &s->sin_addr; break;
+	case AF_INET6: addr = &s6->sin6_addr; break;
+	default: addr = NULL; break;
+	}
+	
+	if (addr == NULL)
+		strlcpy(addrbuf, "<unknown>", sizeof(addrbuf));
+	else
+		inet_ntop(summary->storage.ss_family, addr,
+			  addrbuf, sizeof(addrbuf));
+
 	x = -1;
 	printf("%s. @%s (%s.):", summary->zone, addrbuf, summary->ns);
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 		if (opts[i].what != 0 && (opts[i].what & what) == 0)
 			continue;
 		if (summary->results[i][0] == 0)
-			strcpy(summary->results[i], "skipped");
+			strlcpy(summary->results[i], "skipped", 100);
 		if (strcmp(opts[i].name, "do") == 0)
 			x = i;
 		if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1) {
@@ -354,10 +370,8 @@ freeitem(struct workitem * item) {
 static void
 addtag(struct workitem *item, char *tag) {
 	char *result = item->summary->results[item->test];
-	int i = strlen(result);
-	if (i)
-		result[i++] = ',';
-	strcpy(result + i, tag);
+	if (result[0]) strlcat(result, ",", 100);
+	strlcat(result, tag, 100);
 }
 
 static void
@@ -472,7 +486,8 @@ dotest(struct workitem *item) {
 		 */
 		dn_expand(item->buf, item->buf + n, item->buf + 12,
 			  name, sizeof(name));
-		strcpy(item->summary->zone, name);
+		strlcpy(item->summary->zone, name,
+			sizeof(item->summary->zone));
 	}
 	
 	if (n > 0 && opts[item->test].udpsize > 0) {
@@ -690,11 +705,13 @@ dolookup(struct workitem *item, int type) {
 
 		switch (type) {
 		case ns_t_ns:
-			strcpy(item->summary->zone, name);
+			strlcpy(item->summary->zone, name,
+				sizeof(item->summary->zone));
 			break;
 		case ns_t_a:
 		case ns_t_aaaa:
-			strcpy(item->summary->ns, name);
+			strlcpy(item->summary->ns, name,
+				sizeof(item->summary->zone));
 			break;
 		}
 
@@ -862,7 +879,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	/* process message body */
 
 	if (item->type == ns_t_a || item->type == ns_t_aaaa)
-		strcpy(ns, item->summary->ns);
+		strlcpy(ns, item->summary->ns, sizeof(ns));
 
 	cp = buf + 12;
 	eom = buf + n;
