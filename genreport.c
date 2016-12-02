@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -42,6 +43,7 @@ static int udp6 = -1;
 
 static int debug = 0;
 static int what = 0;
+static int inorder = 0;
 
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
@@ -56,8 +58,31 @@ static int nservers = 0;
 		(list).head = (item); \
 	(item)->link.prev = list.tail; \
 	(item)->link.next = NULL; \
-	(item)->link.linked = 1; \
 	(list).tail = (item); \
+	(item)->link.linked = 1; \
+} while (0)
+
+#define PREPEND(list, item, link) do { \
+	if ((list).head) \
+		(list).head->link.prev = (item); \
+	else \
+		(list).tail = (item); \
+	(item)->link.prev = NULL; \
+	(item)->link.next = list.head; \
+	(list).head = (item); \
+	(item)->link.linked = 1; \
+} while (0)
+
+#define INSERTBEFORE(list, before, item, link) do { \
+	assert(LINKED(before, link)); \
+	if ((before)->link.prev == NULL) \
+		PREPEND(list, item, link); \
+	else { \
+		(item)->link.prev = (before)->link.prev; \
+		(before)->link.prev = (item); \
+		(item)->link.prev->link.next = (item); \
+		(item)->link.next = (before); \
+	} \
 } while (0)
 
 #define UNLINK(list, item, link) do { \
@@ -74,7 +99,7 @@ static int nservers = 0;
 } while (0)
 
 #define NEXT(item, link) (item)->link.next
-#define PREV(item, link) (item)->link.next
+#define PREV(item, link) (item)->link.prev
 #define LINKED(item, link) (item)->link.linked
 
 #define HEAD(list) (list).head
@@ -147,10 +172,16 @@ static struct {
  * Summary structure where results from multiple lookups are recorded.
  */
 struct summary {
+	struct {
+		struct summary *prev;
+		struct summary *next;
+		int linked;
+	} link;
 	char zone[1024];
 	char ns[1024];
 	struct sockaddr_storage storage;
 	int tests;			/* number of outstanding tests */
+	int deferred;			/* was the printing deferred */
 	int done;
 	int type;			/* recursive query lookup type */
 	int nodataa;			/* recursive query got nodata */
@@ -162,6 +193,11 @@ struct summary {
 	struct summary *xlink;		/* cross link of recursive A/AAAA */
 	char results[sizeof(opts)/sizeof(opts[0])][100];
 };
+
+static struct {
+	struct summary *head;
+	struct summary *tail;
+} summaries;
 
 struct workitem {
 	struct {
@@ -203,6 +239,9 @@ static struct {
 
 static void
 connecttoserver(struct workitem *item);
+
+static void
+report(struct summary *summary);
 
 static int
 storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
@@ -247,11 +286,18 @@ checkid(struct sockaddr_storage *storage, int id) {
 	return ((item == NULL) ? 1 : 0);
 }
 
+static void
+freesummary(struct summary *summary) {
+	if (LINKED(summary, link))
+		UNLINK(summaries, summary, link);
+	free(summary);
+}
+
 /*
  * Generate a report line.
  */
 static void
-report(struct summary *summary) {
+printandfree(struct summary *summary) {
 	struct sockaddr_in *s = (struct sockaddr_in *)&summary->storage;
 	struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&summary->storage;;
 	char addrbuf[64];
@@ -259,47 +305,11 @@ report(struct summary *summary) {
 	unsigned int i;
 	int x;
 
-	summary->tests--;
-	if (summary->tests)
-		return;
-
-	/*
-	 * If we are cross linked record the lookup details on the other
-	 * structure.
-	 */
-	if (summary->xlink) {
-		if (summary->nodataa) {
-			summary->xlink->nodataa = 1;
-			summary->done = 1;
-		}
-		if (summary->nodataaaaa) {
-			summary->xlink->nodataaaaa = 1;
-			summary->done = 1;
-		}
-		if (summary->nxdomaina) {
-			summary->xlink->nxdomaina = 1;
-			summary->done = 1;
-		}
-		if (summary->nxdomainaaaa) {
-			summary->xlink->nxdomainaaaa = 1;
-			summary->done = 1;
-		}
-		/*
-		 * Remove the cross link.
-		 */
-		summary->xlink->xlink = NULL;
-		summary->xlink = NULL;
-		if (summary->done) {
-			free(summary);
-			return;
-		}
-	}
-
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->nodataa && summary->nodataaaaa) {
 		printf("%s. %s: no address records found\n",
 		       summary->zone, summary->ns);
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 
@@ -307,49 +317,49 @@ report(struct summary *summary) {
 	    summary->nxdomaina && summary->nxdomainaaaa) {
 		printf("%s. %s: no address records found (NXDOMAIN)\n",
 		       summary->zone, summary->ns);
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 
 	if (summary->done || summary->nodataa || summary->nodataaaaa) {
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 
 	if (summary->type != 0 && summary->nxdomain) {
 		if (summary->type == ns_t_ns) {
 			printf("%s.: NS nxdomain\n", summary->zone);
-			free(summary);
+			freesummary(summary);
 			return;
 		}
 		printf("%s. %s:", summary->zone, summary->ns);
 		if (summary->type == ns_t_a) printf(" A");
 		if (summary->type == ns_t_aaaa) printf(" AAAA");
 		printf(" nxdomain\n");
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_a) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" A lookup failed\n");
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_aaaa) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" AAAA lookup failed\n");
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_ns) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" NS lookup failed\n");
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 
 	if (summary->type != 0) {
-		free(summary);
+		freesummary(summary);
 		return;
 	}
 
@@ -382,7 +392,61 @@ report(struct summary *summary) {
 		printf(" %s=%s", opts[i].name, summary->results[i]);
 	}
 	printf("\n");
-	free(summary);
+	freesummary(summary);
+}
+
+static void
+report(struct summary *summary) {
+
+	/*
+	 * Have all the tests completed?
+	 */
+	summary->tests--;
+	if (summary->tests)
+		return;
+
+	/*
+	 * If we are cross linked record the lookup details on the other
+	 * structure.
+	 */
+	if (summary->xlink) {
+		if (summary->nodataa) {
+			summary->xlink->nodataa = 1;
+			summary->done = 1;
+		}
+		if (summary->nodataaaaa) {
+			summary->xlink->nodataaaaa = 1;
+			summary->done = 1;
+		}
+		if (summary->nxdomaina) {
+			summary->xlink->nxdomaina = 1;
+			summary->done = 1;
+		}
+		if (summary->nxdomainaaaa) {
+			summary->xlink->nxdomainaaaa = 1;
+			summary->done = 1;
+		}
+
+		/*
+		 * Remove the cross link.
+		 */
+		summary->xlink->xlink = NULL;
+		summary->xlink = NULL;
+		if (summary->done) {
+			freesummary(summary);
+			goto print_deferred;
+		}
+	}
+
+	if (inorder && PREV(summary, link)) {
+		summary->deferred = 1;
+		return;
+	}
+	printandfree(summary);
+
+ print_deferred:
+	while ((summary = HEAD(summaries)) && summary->deferred)
+		printandfree(summary);
 }
 
 /*
@@ -673,6 +737,7 @@ check(char *zone, char *ns, char *address) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
+	APPEND(summaries, summary, link);
 
 	summary->storage = storage;
 
@@ -841,7 +906,7 @@ dolookup(struct workitem *item, int type) {
  * Start a A lookup.
  */
 static struct summary *
-lookupa(char *zone, char *ns) {
+lookupa(char *zone, char *ns, struct summary *parent) {
 	struct summary *summary;
 	struct workitem *item;
 	unsigned int i;
@@ -849,6 +914,10 @@ lookupa(char *zone, char *ns) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return (NULL);
+	if (parent)
+		INSERTBEFORE(summaries, parent, summary, link);
+	else
+		APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -859,8 +928,11 @@ lookupa(char *zone, char *ns) {
 	if (i) summary->ns[i-1] = 0;
 
 	item = calloc(1, sizeof(*item));
-	if (item == NULL)
-		free(summary);
+	if (item == NULL) {
+		freesummary(summary);
+		while ((summary = HEAD(summaries)) && summary->deferred)
+			printandfree(summary);
+	}
 
 	item->summary = summary;
 	dolookup(item, ns_t_a);
@@ -871,7 +943,7 @@ lookupa(char *zone, char *ns) {
  * Start a AAAA lookup.
  */
 static struct summary *
-lookupaaaa(char *zone, char *ns) {
+lookupaaaa(char *zone, char *ns, struct summary *parent) {
 	struct summary *summary;
 	struct workitem *item;
 	unsigned int i;
@@ -879,6 +951,10 @@ lookupaaaa(char *zone, char *ns) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return (NULL);
+	if (parent)
+		INSERTBEFORE(summaries, parent, summary, link);
+	else
+		APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -889,8 +965,11 @@ lookupaaaa(char *zone, char *ns) {
 	if (i) summary->ns[i-1] = 0;
 
 	item = calloc(1, sizeof(*item));
-	if (item == NULL)
-		free(summary);
+	if (item == NULL) {
+		freesummary(summary);
+		while ((summary = HEAD(summaries)) && summary->deferred)
+			printandfree(summary);
+	}
 
 	item->summary = summary;
 	dolookup(item, ns_t_aaaa);
@@ -909,14 +988,18 @@ lookupns(char *zone) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
+	APPEND(summaries, summary, link);
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
 	if (i) summary->zone[i-1] = 0;
 
 	item = calloc(1, sizeof(*item));
-	if (item == NULL)
-		free(summary);
+	if (item == NULL) {
+		freesummary(summary);
+		while ((summary = HEAD(summaries)) && summary->deferred)
+			printandfree(summary);
+	}
 
 	item->summary = summary;
 	dolookup(item, ns_t_ns);
@@ -1074,8 +1157,10 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			 * Cross link A/AAAA lookups so that we can generate
 			 * a single NXDOMAIN / no address report.
 			 */
-			summarya = lookupa(item->summary->zone, ns);
-			summaryaaaa = lookupaaaa(item->summary->zone, ns);
+			summarya = lookupa(item->summary->zone, ns,
+					   item->summary);
+			summaryaaaa = lookupaaaa(item->summary->zone, ns,
+						 item->summary);
 			if (summarya && summaryaaaa) {
 				summarya->xlink = summaryaaaa;
 				summaryaaaa->xlink = summarya;
@@ -1482,8 +1567,8 @@ readstdin(int fd) {
 		 * Cross link A/AAAA lookups so that we can generate
 		 * a single NXDOMAIN / no address report.
 		 */
-		summarya = lookupa(zone, ns);
-		summaryaaaa = lookupaaaa(zone, ns);
+		summarya = lookupa(zone, ns, NULL);
+		summaryaaaa = lookupaaaa(zone, ns, NULL);
 		if (summarya && summaryaaaa) {
 			summarya->xlink = summaryaaaa;
 			summaryaaaa->xlink = summarya;
@@ -1578,7 +1663,6 @@ nextserver(struct workitem *item) {
 
 static void
 addserver(const char *hostname) {
-	int n;
 	struct addrinfo hints, *res, *res0;
 
 	if (nservers < 10) {
@@ -1609,14 +1693,20 @@ main(int argc, char **argv) {
 	int nfds = 0;
 	int done = 0;
 
-	while ((n = getopt(argc, argv, "cdfs:")) != -1) {
+	while ((n = getopt(argc, argv, "cdfos:")) != -1) {
 		switch (n) {
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
 		case 'f': what |= FULL; break;
+		case 'o': inorder = 1; break;
 		case 's': addserver(optarg); break;
 		default:
-			printf("usage: genreport [-c|-d|-f] [-s address]\n");
+			printf("usage: genreport [-c|-d|-f|-o] [-s server]\n");
+			printf("\t-c: add common queries\n");
+			printf("\t-d: enable debugging\n");
+			printf("\t-f: add full tests\n");
+			printf("\t-o: inorder output\n");
+			printf("\t-s: use specified recursive server\n");
 			exit(0);
 		}
 	}
