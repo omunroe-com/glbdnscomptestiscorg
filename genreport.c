@@ -46,6 +46,9 @@ static int what = 0;
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
 
+/*
+ * Doubly linked list macros.
+ */
 #define APPEND(list, item, link) do { \
 	if ((list).tail) \
 		(list).tail->link.next = (item); \
@@ -77,29 +80,32 @@ static int nservers = 0;
 #define HEAD(list) (list).head
 #define TAIL(list) (list).tail
 
+/*
+ * Test groupings
+ */
 #define EDNS 0x0
 #define COMM 0x1
 #define FULL 0x2
 
 static struct {
-	const char *name;
-	unsigned int what;
-	unsigned short rdlen;
-	const char *rdata;
-	unsigned short udpsize;
-	unsigned short flags;
-	unsigned short version;
-	unsigned int tcp;
-	unsigned int ignore;
-	unsigned int tc;
-	unsigned int rd;
-	unsigned int ra;
-	unsigned int cd;
-	unsigned int ad;
-	unsigned int aa;
-	unsigned int z;
-	unsigned int opcode;
-	unsigned short type;
+	const char *name;		/* test nmemonic */
+	unsigned int what;		/* select what test to make / report */
+	unsigned short rdlen;		/* edns rdata length */
+	const char *rdata;		/* edns rdata */
+	unsigned short udpsize;		/* edns UDP size (0 == no EDNS) */
+	unsigned short flags;		/* edns flags to be set */
+	unsigned short version;		/* edns version */
+	unsigned int tcp;		/* use tcp */
+	unsigned int ignore;		/* ignore tc in response */
+	unsigned int tc;		/* set tc in request */
+	unsigned int rd;		/* set rd in request */
+	unsigned int ra;		/* set ra in request */
+	unsigned int cd;		/* set cd in request */
+	unsigned int ad;		/* set ad  in request */
+	unsigned int aa;		/* set aa in request */
+	unsigned int z;			/* set z in request */
+	unsigned int opcode;		/* use opcode for request */
+	unsigned short type;		/* query type code */
 } opts[] = {
 	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
@@ -137,20 +143,23 @@ static struct {
 	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey }
 };
 
+/*
+ * Summary structure where results from multiple lookups are recorded.
+ */
 struct summary {
 	char zone[1024];
 	char ns[1024];
 	struct sockaddr_storage storage;
-	int tests;
+	int tests;			/* number of outstanding tests */
 	int done;
-	int type;
-	int nodataa;
-	int nodataaaa;
-	int nxdomain;
-	int nxdomaina;
-	int nxdomainaaaa;
-	int seenrrsig;
-	struct summary *xlink;
+	int type;			/* recursive query lookup type */
+	int nodataa;			/* recursive query got nodata */
+	int nodataaaaa;			/* recursive query got nodata */
+	int nxdomain;			/* recursive query got nxdomain */
+	int nxdomaina;			/* recursive query got nxdomain */
+	int nxdomainaaaa;		/* recursive query got nxdomain */
+	int seenrrsig;			/* a rrsig was seen in "do" test */
+	struct summary *xlink;		/* cross link of recursive A/AAAA */
 	char results[sizeof(opts)/sizeof(opts[0])][100];
 };
 
@@ -163,12 +172,13 @@ struct workitem {
 	unsigned short id;
 	struct timeval when;
 	int type;
-	int test;
-	int sends;
+	int test;			/* test number / server number */
+	int sends;			/* number of times this UDP request
+					 * has been sent */
 	int buflen;
 	int tcpfd;
-	int outstanding;
-	int havelen;
+	int outstanding;		/* outstanding has been set */
+	int havelen;			/* readlen is tcp message length */
 	int readlen;
 	int read;
 	unsigned char buf[512];
@@ -178,11 +188,13 @@ struct workitem {
 };
 
 /*
- * Work queues.
+ * Work queues:
  *	'work' udp qeries;
  *	'connecting' tcp qeries;
  *	'reading' tcp qeries;
- *	'ids' in flight queries by qid lists;
+ *
+ * Outstanding queries by qid.
+ *	'ids'
  */
 static struct {
 	struct workitem *head;
@@ -221,6 +233,9 @@ storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
 	return (0);
 }
 
+/*
+ * Check if it is safe to use this id to this address.
+ */
 static int
 checkid(struct sockaddr_storage *storage, int id) {
 	struct workitem *item;
@@ -232,6 +247,9 @@ checkid(struct sockaddr_storage *storage, int id) {
 	return ((item == NULL) ? 1 : 0);
 }
 
+/*
+ * Generate a report line.
+ */
 static void
 report(struct summary *summary) {
 	struct sockaddr_in *s = (struct sockaddr_in *)&summary->storage;
@@ -245,22 +263,40 @@ report(struct summary *summary) {
 	if (summary->tests)
 		return;
 
+	/*
+	 * If we are cross linked record the lookup details on the other
+	 * structure.
+	 */
 	if (summary->xlink) {
-		if (summary->nodataa)
+		if (summary->nodataa) {
 			summary->xlink->nodataa = 1;
-		if (summary->nodataaaa)
-			summary->xlink->nodataaaa = 1;
-		if (summary->nxdomaina)
+			summary->done = 1;
+		}
+		if (summary->nodataaaaa) {
+			summary->xlink->nodataaaaa = 1;
+			summary->done = 1;
+		}
+		if (summary->nxdomaina) {
 			summary->xlink->nxdomaina = 1;
-		if (summary->nxdomainaaaa)
+			summary->done = 1;
+		}
+		if (summary->nxdomainaaaa) {
 			summary->xlink->nxdomainaaaa = 1;
+			summary->done = 1;
+		}
+		/*
+		 * Remove the cross link.
+		 */
 		summary->xlink->xlink = NULL;
 		summary->xlink = NULL;
-		summary->done = 1;
+		if (summary->done) {
+			free(summary);
+			return;
+		}
 	}
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
-	    summary->nodataa && summary->nodataaaa) {
+	    summary->nodataa && summary->nodataaaaa) {
 		printf("%s. %s: no address records found\n",
 		       summary->zone, summary->ns);
 		free(summary);
@@ -275,7 +311,7 @@ report(struct summary *summary) {
 		return;
 	}
 
-	if (summary->done) {
+	if (summary->done || summary->nodataa || summary->nodataaaaa) {
 		free(summary);
 		return;
 	}
@@ -344,6 +380,9 @@ report(struct summary *summary) {
 	free(summary);
 }
 
+/*
+ * Free a work item and unlink.
+ */
 static void
 freeitem(struct workitem * item) {
 	report(item->summary);
@@ -367,6 +406,9 @@ freeitem(struct workitem * item) {
 	free(item);
 }
 
+/*
+ * Add a tag to the report.
+ */
 static void
 addtag(struct workitem *item, char *tag) {
 	char *result = item->summary->results[item->test];
@@ -374,6 +416,9 @@ addtag(struct workitem *item, char *tag) {
 	strlcat(result, tag, 100);
 }
 
+/*
+ * Resend a UDP request.
+ */
 static void
 resend(struct workitem *item) {
 	int n, fd = -1;
@@ -425,6 +470,9 @@ resend(struct workitem *item) {
 	}
 }
 
+/*
+ * Start a individual test.
+ */
 static void
 dotest(struct workitem *item) {
 	unsigned char *cp;
@@ -446,6 +494,10 @@ dotest(struct workitem *item) {
 		return;
 	}
 
+	/*
+	 * res_mkquery only really knows about QUERY but it is useful
+	 * for initalising the header when the opcode isn't QUERY.
+	 */
 	opcode = opts[item->test].opcode;
 	switch (opcode) {
 	case 0: break;
@@ -464,6 +516,10 @@ dotest(struct workitem *item) {
 		if (opts[item->test].opcode == 15)
 			item->buf[4] = item->buf[5] = 0;
 	}
+
+	/*
+	 * Set DNS flags as specified by test.
+	 */
 	if (opts[item->test].tc)
 		item->buf[2] |= 0x2;	/* set tc */
 	if (opts[item->test].rd)
@@ -490,7 +546,11 @@ dotest(struct workitem *item) {
 			sizeof(item->summary->zone));
 	}
 	
-	if (n > 0 && opts[item->test].udpsize > 0) {
+	/*
+	 * Add OPT record if required by test.
+	 */
+	if (n > 0 && opts[item->test].udpsize > 0 &&
+	    11 + opts[item->test].rdlen < 512 - n) {
 		cp = item->buf + n;
 		*cp++ = 0;				/* name */
 		ns_put16(ns_t_opt, cp);			/* type */
@@ -510,6 +570,9 @@ dotest(struct workitem *item) {
 	}
 
 	if (n > 0) {
+		/*
+		 * Adjust id if it clashes with a outstanding request.
+		 */
 		id = item->buf[0] << 8 | item->buf[1];
 
 		while (!checkid(&item->summary->storage, id) &&
@@ -532,6 +595,9 @@ dotest(struct workitem *item) {
 			return;
 		}
 
+		/*
+		 * If there is too much outstanding work queue this item.
+		 */
 		if (outstanding > maxoutstanding) {
 			gettimeofday(&item->when, NULL);
 			item->when.tv_sec += 1;
@@ -566,6 +632,9 @@ dotest(struct workitem *item) {
 	}
 }
 
+/*
+ * Start a series of tests.
+ */
 static void
 check(char *zone, char *ns, char *address) {
 	size_t i;
@@ -653,6 +722,9 @@ rcodetext(int code) {
 	}
 }
 
+/*
+ * Start a lookup using the recursive server(s).
+ */
 static void
 dolookup(struct workitem *item, int type) {
 	char name[1024];
@@ -760,6 +832,9 @@ dolookup(struct workitem *item, int type) {
 	}
 }
 
+/*
+ * Start a A lookup.
+ */
 static struct summary *
 lookupa(char *zone, char *ns) {
 	struct summary *summary;
@@ -787,6 +862,9 @@ lookupa(char *zone, char *ns) {
 	return (summary);
 }
 
+/*
+ * Start a AAAA lookup.
+ */
 static struct summary *
 lookupaaaa(char *zone, char *ns) {
 	struct summary *summary;
@@ -814,6 +892,9 @@ lookupaaaa(char *zone, char *ns) {
 	return (summary);
 }
 
+/*
+ * Start a NS lookup.
+ */
 static void
 lookupns(char *zone) {
 	struct summary *summary;
@@ -836,6 +917,9 @@ lookupns(char *zone) {
 	dolookup(item, ns_t_ns);
 }
 
+/*
+ * Process a recieved response.
+ */
 static void
 process(struct workitem *item, unsigned char *buf, int n) {
 	char name[1024], ns[1024];
@@ -903,14 +987,12 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		if (item->type == ns_t_a && type == ns_t_a &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
 		    rcode == 0 && ancount == 0) {
-			item->summary->done = 1;
 			item->summary->nodataa = 1;
 		}
 		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
 		    rcode == 0 && ancount == 0) {
-			item->summary->done = 1;
-			item->summary->nodataaaa = 1;
+			item->summary->nodataaaaa = 1;
 		}
 		if (item->type == ns_t_ns && type == ns_t_ns &&
 		    strcasecmp(item->summary->zone, name) == 0 &&
@@ -983,6 +1065,10 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			if (n != rdlen)
 				goto err;
 			item->summary->done = 1;
+			/*
+			 * Cross link A/AAAA lookups so that we can generate
+			 * a single NXDOMAIN / no address report.
+			 */
 			summarya = lookupa(item->summary->zone, ns);
 			summaryaaaa = lookupaaaa(item->summary->zone, ns);
 			if (summarya && summaryaaaa) {
@@ -1162,6 +1248,9 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	freeitem(item);
 }
 
+/*
+ * Read a TCP response.
+ */
 static void
 tcpread(int fd) {
 	struct workitem *item;
@@ -1203,6 +1292,9 @@ tcpread(int fd) {
 	}
 }
 
+/*
+ * Send the TCP request and start the read process.
+ */
 static void
 startread(struct workitem *item) {
 	struct iovec iov[2];
@@ -1234,6 +1326,9 @@ startread(struct workitem *item) {
 	}
 }
 
+/*
+ * Check if the connect succeeded and start perform a TCP request if it has.
+ */
 static void
 connectdone(int fd) {
 	struct workitem *item;
@@ -1266,6 +1361,9 @@ connectdone(int fd) {
 	startread(item);
 }
 
+/*
+ * Connect to a server over TCP.
+ */
 static void
 connecttoserver(struct workitem *item) {
 	int fd, n, on = 1;
@@ -1277,6 +1375,10 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
+
+	/*
+	 * Make the socket non blocking.
+	 */
 	n = ioctl(fd, FIONBIO, (void *)&on);
 	if (n == -1) {
 		close(fd);
@@ -1284,6 +1386,10 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
+
+	/*
+	 * Don't generate a SIG_PIPE if there is a I/O error on this socket.
+	 */
 	n = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, (void *)&on, sizeof(on));
 	if (n == -1) {
 		close(fd);
@@ -1291,6 +1397,10 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
+
+	/*
+	 * Start the actual connect.
+	 */
 	n = connect(fd, (struct sockaddr *)&item->summary->storage,
 		    item->summary->storage.ss_len);
 	if (n == -1 && errno == EINPROGRESS) {
@@ -1323,6 +1433,9 @@ connecttoserver(struct workitem *item) {
 	startread(item);
 }
 
+/*
+ * Read zone [server [address]]
+ */
 static void
 readstdin(int fd) {
 	char line[4096];
@@ -1331,6 +1444,9 @@ readstdin(int fd) {
 	char address[1204];
 	int n;
 
+	/*
+	 * Too much outstanding work then wait to be called again.
+	 */
 	if (outstanding > maxoutstanding / 2)
 		return;
 
@@ -1350,6 +1466,11 @@ readstdin(int fd) {
 		check(zone, ns, address);
 	if (n == 2) {
 		struct summary *summarya, *summaryaaaa;
+
+		/*
+		 * Cross link A/AAAA lookups so that we can generate
+		 * a single NXDOMAIN / no address report.
+		 */
 		summarya = lookupa(zone, ns);
 		summaryaaaa = lookupaaaa(zone, ns);
 		if (summarya && summaryaaaa) {
@@ -1467,7 +1588,6 @@ addserver(const char *hostname) {
 	}
 }
 
-
 int
 main(int argc, char **argv) {
 	struct timeval now, to, *tpo = NULL;
@@ -1477,8 +1597,6 @@ main(int argc, char **argv) {
 	int fd;
 	int nfds = 0;
 	int done = 0;
-
-	res_init();
 
 	while ((n = getopt(argc, argv, "cdfs:")) != -1) {
 		switch (n) {
@@ -1515,10 +1633,19 @@ main(int argc, char **argv) {
 		rhandlers[udp6] = udpread;
 	}
 
+	res_init();
+
+	/*
+	 * If we haven't been given recursive servers to use the
+	 * get the system's default servers.
+	 */
 	if (!nservers) 
 		nservers = res_getservers(&_res, servers,
 					  sizeof(servers)/sizeof(servers[0]));
 
+	/*
+	 * Main work loop.
+	 */
 	do {
 		FD_COPY(&rfds, &myrfds);
 		FD_COPY(&wfds, &mywfds);
@@ -1537,6 +1664,10 @@ main(int argc, char **argv) {
 			tpo = &to;
 		} else
 			tpo = NULL;
+
+		/*
+		 * Too much outstanding work stop looking for more.
+		 */
 		if (outstanding > maxoutstanding/2)
 			FD_CLR(0, &myrfds);
 		n = select(nfds, &myrfds, &mywfds, NULL, tpo);
@@ -1550,11 +1681,20 @@ main(int argc, char **argv) {
 					(*whandlers[fd])(fd);
 			}
 		}
+
+		/*
+		 * Find the next item that needs to be handled on the
+		 * three work queues.  Also timeout / resend if approriate.
+		 */
 		item = HEAD(work);
 		ritem = HEAD(reading);
 		citem = HEAD(connecting);
 		if (item || citem || ritem)
 			gettimeofday(&now, NULL);
+
+		/*
+		 * UDP work queue.
+		 */
 		while (item) {
 			if (item->when.tv_sec > now.tv_sec ||
 			    (item->when.tv_sec == now.tv_sec &&
@@ -1570,6 +1710,10 @@ main(int argc, char **argv) {
 			}
 			item = HEAD(work);
 		}
+
+		/*
+		 * Has the connect timed out?
+		 */
 		while (citem) {
 			if (citem->when.tv_sec > now.tv_sec ||
 			    (citem->when.tv_sec == now.tv_sec &&
@@ -1579,6 +1723,10 @@ main(int argc, char **argv) {
 			freeitem(citem);
 			citem = HEAD(connecting);
 		}
+
+		/*
+		 * Make item be the earliest of item, citem.
+		 */
 		if (item && citem) {
 			if (citem->when.tv_sec < item->when.tv_sec ||
 			    (citem->when.tv_sec == item->when.tv_sec &&
@@ -1586,6 +1734,10 @@ main(int argc, char **argv) {
 				item = citem;
 		} else if (item == NULL)
 			item = citem;
+
+		/*
+		 * Has the TCP read timed out?
+		 */
 		while (ritem) {
 			if (ritem->when.tv_sec > now.tv_sec ||
 			    (ritem->when.tv_sec == now.tv_sec &&
@@ -1595,6 +1747,10 @@ main(int argc, char **argv) {
 			freeitem(ritem);
 			ritem = HEAD(reading);
 		}
+
+		/*
+		 * Make item be the earliest of item, ritem.
+		 */
 		if (item && ritem) {
 			if (ritem->when.tv_sec < item->when.tv_sec ||
 			    (ritem->when.tv_sec == item->when.tv_sec &&
