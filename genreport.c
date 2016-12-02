@@ -596,10 +596,11 @@ check(char *zone, char *ns, char *address) {
 	if (i) summary->ns[i-1] = 0;
 
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+		struct workitem *item;
 		if (opts[i].what != 0 && (opts[i].what & what) == 0)
 			continue;
-		struct workitem *item = calloc(1, sizeof(*item));
 
+		item = calloc(1, sizeof(*item));
 		if (item == NULL) {
 			summary->tests++;
 			report(summary);
