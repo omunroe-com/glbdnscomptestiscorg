@@ -1058,6 +1058,10 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			addtag(item, rcodetext(rcode)), ok = 0;
 	if ((ednsttl & 0xff0000) != 0)
 		addtag(item, "badversion"), ok = 0;
+	if (!seenopt && opts[item->test].udpsize)
+		addtag(item, "noopt"), ok = 0;
+	if (seenopt && opts[item->test].udpsize == 0)
+		addtag(item, "opt"), ok = 0;
 	if (opts[item->test].type == ns_t_soa)
 		if (opts[item->test].version == 0 &&
 		    !opts[item->test].ignore && !seensoa)
