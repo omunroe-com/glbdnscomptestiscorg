@@ -64,7 +64,7 @@ static int nservers = 0;
 #define HEAD(list) (list).head
 #define TAIL(list) (list).tail
 
-struct {
+static struct {
 	const char *name;
 	unsigned short rdlen;
 	const char *rdata;
@@ -73,27 +73,50 @@ struct {
 	unsigned short version;
 	unsigned int tcp;
 	unsigned int ignore;
+	unsigned int rd;
+	unsigned int ra;
+	unsigned int cd;
+	unsigned int ad;
+	unsigned int aa;
+	unsigned int z;
+	unsigned int opcode;
 	unsigned short type;
 } opts[] = {
-	{ "dns", 0, NULL, 0, 0, 0, 0, 0, ns_t_soa },
-	{ "edns", 0, "", 4096, 0, 0, 0, 0, ns_t_soa },
-	{ "edns1", 0, "" , 4096, 0, 1, 0, 0, ns_t_soa },
-	{ "edns@512", 0, "" , 512, 0, 0, 0, 1, ns_t_dnskey },
-	{ "ednsopt", 4, "\x00\x64\x00", 4096, 0, 0, 0, 0, ns_t_soa },
-	{ "edns1opt", 4, "\x00\x64\x00", 4096, 0, 1, 0, 0, ns_t_soa },
-	{ "do", 4, "\0\144\0", 4096, 0x8000, 0, 0, 0, ns_t_soa },
-	{ "ednsflags", 0, "", 4096, 0x80, 0, 0, 0, ns_t_soa },
-	{ "optlist", 4 + 8 + 4 + 12,
+	{ "dns",       0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns",      0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1",     0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns@512",  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "ednsopt",   4, "\x00\x64\x00",
+			      4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1opt",  4, "\x00\x64\x00",
+			      4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "do",        4, "\0\144\0",
+			      4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednsflags", 0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "optlist",   4 + 8 + 4 + 12,
 	  "\x00\x03\x00\x00" 		     /* NSID */
 	  "\x00\x08\x00\x04\x00\x01\x00\x00" /* ECS */
 	  "\x00\x09\x00\x00" 		     /* EXPIRE */
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",	/* COOKIE */
-	  4096, 0, 0, 0, 0, ns_t_soa },
-/*
-	{ "bind", 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-	  4096, 1, 0, 0, 0, ns_t_soa },
-*/
-	{ "ednstcp", 0, "", 512, 1, 0, 1, 0, ns_t_dnskey }
+	                      4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+#ifdef common
+	{ "bind",     12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	                      4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "dig",      12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	                      4096, 0x0000, 0, 0, 0, 0, 1, 0, 0, 1, 0,  0, ns_t_soa },
+#endif
+#ifdef full
+	{ "zflag",     0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
+	{ "aa",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
+	{ "ad",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
+	{ "cd",        0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
+	{ "ra",        0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "rd",        0, "",    0, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "opcode",    0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
+	{ "opcodeflg", 0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 15, 0 },
+	{ "type666",   0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
+#endif
+	{ "ednstcp",   0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey }
 };
 
 struct summary {
@@ -319,7 +342,6 @@ addtag(struct workitem *item, char *tag) {
 
 static void
 resend(struct workitem *item) {
-	unsigned int ttl;
 	int n, fd = -1;
 
 	switch (item->summary->storage.ss_family) {
@@ -373,7 +395,7 @@ static void
 dotest(struct workitem *item) {
 	unsigned char *cp;
 	unsigned int ttl;
-	int n, fd, id, tries = 0;
+	int n, fd, id, tries = 0, opcode;
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
@@ -389,13 +411,37 @@ dotest(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
-	
-	n = res_mkquery(ns_o_query, item->summary->zone, ns_c_in,
+
+	opcode = opts[item->test].opcode;
+	switch (opcode) {
+	case 0: break;
+	default:
+		opcode = ns_o_query;
+	}
+
+	n = res_mkquery(opcode, item->summary->zone, ns_c_in,
 			opts[item->test].type, NULL, 0, NULL,
 			item->buf, sizeof(item->buf));
-	item->buf[2] &= ~0x1;	/* clear rd */
+	/* fixup opcode? */
+	if (n > 0 && opts[item->test].opcode != opcode) {
+		item->buf[2] &= 0x17;
+		item->buf[2] |= (opts[item->test].opcode & 0x0f) << 3;
+		/* Zero question section. */
+		if (opts[item->test].opcode == 15)
+			item->buf[4] = item->buf[5] = 0;
+	}
+	if (opts[item->test].rd)
+		item->buf[2] |= 0x1;	/* set rd */
+	else
+		item->buf[2] &= ~0x1;	/* clear rd */
+	if (opts[item->test].z)	/* set z */
+		item->buf[3] |= 0x40;
+		
 	if (n > 0) {
 		char name[1024];
+		/*
+		 * Make zone canonical.
+		 */
 		dn_expand(item->buf, item->buf + n, item->buf + 12,
 			  name, sizeof(name));
 		strcpy(item->summary->zone, name);
@@ -480,7 +526,7 @@ dotest(struct workitem *item) {
 static void
 check(char *zone, char *ns, char *address) {
 	size_t i;
-	int n, fd;
+	int fd;
 	struct in_addr addr;
 	struct in6_addr addr6;
 	struct sockaddr_storage storage;
@@ -510,20 +556,26 @@ check(char *zone, char *ns, char *address) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
+
 	summary->storage = storage;
+
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
 	if (i) summary->zone[i-1] = 0;
+
 	ns_makecanon(ns, summary->ns, sizeof(summary->ns));
 	i = strlen(summary->ns);
 	if (i) summary->ns[i-1] = 0;
+
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 		struct workitem *item = calloc(1, sizeof(*item));
+
 		if (item == NULL) {
 			summary->tests++;
 			report(summary);
 			break;
 		}
+
 		summary->tests++;
 		item->summary = summary;
 		item->test = i;
@@ -534,6 +586,7 @@ check(char *zone, char *ns, char *address) {
 static char *
 rcodetext(int code) {
 	static char buf[64];
+
 	switch(code) {
 	case 0: return("noerror");
 	case 1: return("formerr");
@@ -549,7 +602,7 @@ rcodetext(int code) {
 	case 16: return("badvers");
 	case 23: return("badcookie");
 	default:
-		snprintf(buf, sizeof(buf), "?%u", code);
+		snprintf(buf, sizeof(buf), "rcode%u", code);
 		return (buf);
 	}
 }
@@ -596,15 +649,26 @@ dolookup(struct workitem *item, int type) {
 				type, NULL, 0, NULL,
 				item->buf, sizeof(item->buf));
 	if (n > 0) {
-		int id = item->buf[0] << 8 | item->buf[1];
-		int tries = 0;
+		int id, tries = 0;
 
+		/*
+		 * Make name canonical.
+		 */
 		dn_expand(item->buf, item->buf + n, item->buf + 12,
-			 name, sizeof(name));
-		if (type == ns_t_ns)
+			  name, sizeof(name));
+
+		switch (type) {
+		case ns_t_ns:
 			strcpy(item->summary->zone, name);
-		else
+			break;
+		case ns_t_a:
+		case ns_t_aaaa:
 			strcpy(item->summary->ns, name);
+			break;
+		}
+
+		item->buf[2] |= 0x1;	/* set rd */
+		id = item->buf[0] << 8 | item->buf[1];
 
 		while (!checkid(&item->summary->storage, id) &&
 		       tries++ < 0xffff)
@@ -627,6 +691,7 @@ dolookup(struct workitem *item, int type) {
 			APPEND(ids[item->id], item, idlink);
 			return;
 		}
+
 		n = sendto(fd, item->buf, item->buflen, 0,
 			   (struct sockaddr *)&item->summary->storage,
 			   item->summary->storage.ss_len);
@@ -710,7 +775,10 @@ lookupns(char *zone) {
 	summary = calloc(1, sizeof(*summary));
 	if (summary == NULL)
 		return;
-	strcpy(summary->zone, zone);
+
+	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
+	i = strlen(summary->zone);
+	if (i) summary->zone[i-1] = 0;
 
 	item = calloc(1, sizeof(*item));
 	if (item == NULL)
@@ -732,9 +800,6 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
 	int seenecho = 0;
 	char addrbuf[64];
-	struct sockaddr_in *s = (struct sockaddr_in *)&item->summary->storage;
-	struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&item->summary->storage;
-	void *addr;
 	int ok = 1;
 
 	/* process message header */
@@ -755,7 +820,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	aucount = buf[8] << 8 | buf[9];
 	adcount = buf[10] << 8 | buf[11];
 
-	if (tc && !opts[item->test].ignore && item->tcpfd == 0) {
+	if (tc && item->tcpfd == 0 &&
+	    (item->summary->type || !opts[item->test].ignore)) {
 		if (LINKED(item, link))
 			UNLINK(work, item, link);
 		connecttoserver(item);
@@ -977,9 +1043,16 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		       qrcount, ancount, aucount, adcount,
 		       seensoa, seenrrsig, seenopt,
 		       seennsid, seenecs, seenexpire, seencookie);
-	if (opts[item->test].version == 0)
-		if (rcode != 0)
+
+	if (item->summary->type)
+		goto done;
+
+	if (opts[item->test].version == 0) {
+		if (opts[item->test].opcode == 0 && rcode != 0)
 			addtag(item, rcodetext(rcode)), ok = 0;
+		if (opts[item->test].opcode != 0 && rcode != 4)
+			addtag(item, rcodetext(rcode)), ok = 0;
+	}
 	if (opts[item->test].version != 0)
 		if (rcode != 16) /* badvers */
 			addtag(item, rcodetext(rcode)), ok = 0;
@@ -996,6 +1069,25 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "echoed"), ok = 0;
 	if ((ednsttl & 0x8000) == 0 && seenrrsig)
 		addtag(item, "nodo"), ok = 0;
+	if (!aa && opts[item->test].version == 0 &&
+	    opts[item->test].opcode == 0)
+		addtag(item, "noaa"), ok = 0;
+	if (aa && opts[item->test].opcode != 0)
+		addtag(item, "aa"), ok = 0;
+	if (ra && opts[item->test].opcode)
+		addtag(item, "ra"), ok = 0;
+	if (rd &&
+	    (opts[item->test].opcode || !opts[item->test].rd))
+		addtag(item, "rd"), ok = 0;
+	if (!rd && opts[item->test].rd)
+		addtag(item, "nord"), ok = 0;
+	if (ad &&
+	    (opts[item->test].opcode || !opts[item->test].ad))
+		addtag(item, "ad"), ok = 0;
+	if (cd)
+		addtag(item, "cd"), ok = 0;
+	if (z)
+		addtag(item, "z"), ok = 0;
 	if ((ednsttl & 0x7fff) != 0)
 		addtag(item, "mbz"), ok = 0;
 	if (seenrrsig)
@@ -1095,7 +1187,6 @@ connectdone(int fd) {
 	struct workitem *item;
 	socklen_t optlen;
 	int cc;
-	int n;
 
 	item = HEAD(connecting);
 	while (item && item->tcpfd != fd)
