@@ -753,6 +753,9 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 	if (summary == NULL)
 		return;
 
+	/*
+	 * Hold a reference until all the tests have been initiated.
+	 */
 	summary->tests++;
 	if (parent)
 		INSERTBEFORE(summaries, parent, summary, link);
@@ -782,7 +785,7 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 		item->test = i;
 		dotest(item);
 	}
-	report(summary);
+	report(summary);	/* Release reference. */
 }
 
 static char *
@@ -954,6 +957,9 @@ lookupa(char *zone, char *ns, struct summary *parent) {
 		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	/*
+	 * Hold a reference so that caller can xlink.
+	 */
 	summary->tests++;
 	dolookup(item, ns_t_a);
 	return (summary);
@@ -994,6 +1000,9 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	/*
+	 * Hold a reference so that caller can xlink.
+	 */
 	summary->tests++;
 	dolookup(item, ns_t_aaaa);
 	return (summary);
@@ -1189,6 +1198,9 @@ process(struct workitem *item, unsigned char *buf, int n) {
 				summarya->xlink = summaryaaaa;
 				summaryaaaa->xlink = summarya;
 			}
+			/*
+			 * Release references.
+			 */
 			if (summarya) report(summarya);
 			if (summaryaaaa) report(summaryaaaa);
 		}
@@ -1599,6 +1611,9 @@ readstdin(int fd) {
 			summarya->xlink = summaryaaaa;
 			summaryaaaa->xlink = summarya;
 		}
+		/*
+		 * Release references.
+		 */
 		if (summarya) report(summarya);
 		if (summaryaaaa) report(summaryaaaa);
 	}
