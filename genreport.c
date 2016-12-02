@@ -1166,17 +1166,23 @@ process(struct workitem *item, unsigned char *buf, int n) {
 
 	rcode += (ednsttl & 0xff000000) >> 20;
 
-	if (debug)
+	if (debug) {
+		const char *testname;
+		if (item->summary->type == 0)
+			testname = opts[item->test].name;
+		else
+			testname = "";
 		printf("id=%-5u %-9s opcode=%u rcode=%u aa=%u tc=%u rd=%u "
 		       "ra=%u z=%u ad=%u cd=%u qrcount=%u ancount=%u "
 		       "aucount=%u adcount=%u\n"
 		       "\tseensoa=%u seenrrsig=%u seenopt=%u "
 		       "seennsid=%u seenecs=%u seenexpire=%u seencookie=%u\n",
-		       id, opts[item->test].name, opcode, rcode,
+		       id, testname, opcode, rcode,
 		       aa, tc, rd, ra, z, ad, cd,
 		       qrcount, ancount, aucount, adcount,
 		       seensoa, seenrrsig, seenopt,
 		       seennsid, seenecs, seenexpire, seencookie);
+	}
 
 	if (item->summary->type)
 		goto done;
