@@ -1563,7 +1563,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			addtag(item, "soa"), ok = 0;
 	if (seenecho)
 		addtag(item, "echoed"), ok = 0;
-	if ((ednsttl & 0x8000) != 0 && seenrrsig)
+	if (seenrrsig &&
+	    (opts[item->test].flags & 0x8000) != 0 && (ednsttl & 0x8000) == 0)
 		addtag(item, "nodo"), ok = 0;
 	if (!aa && opts[item->test].version == 0 &&
 	    rcode == ns_r_noerror && opts[item->test].opcode == 0)
