@@ -860,6 +860,7 @@ dotest(struct workitem *item) {
 		if (tries == 0xffff) {
 			addtag(item, "skipped");
 			item->summary->allok = 0;
+			item->summary->seenfailure = 1;
 			freeitem(item);
 			return;
 		}
@@ -1175,7 +1176,7 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 	struct workitem *item;
 	unsigned int i;
 
-	if (ipv6only)
+	if (ipv4only)
 		return (NULL);
 
 	summary = calloc(1, sizeof(*summary));
@@ -1514,8 +1515,12 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		       seennsid, seenecs, seenexpire, seencookie);
 	}
 
-	if (item->summary->type)
-		goto done;
+	if (item->summary->type) {
+		if (rcode == ns_r_noerror || rcode == ns_r_nxdomain)
+			goto done;
+		nextserver(item);
+		return;
+	}
 
 	if (seenopt)
 		item->summary->seenopt = 1;
