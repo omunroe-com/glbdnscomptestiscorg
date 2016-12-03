@@ -73,6 +73,8 @@ static int udp6 = -1;
 static int ipv4only = 0;
 static int ipv6only = 0;
 
+static int bad  = 0;
+static int ednsonly  = 0;
 static int debug = 0;
 static int inorder = 0;
 static int serial  = 0;
@@ -180,7 +182,7 @@ static struct {
 	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
 	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
 	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
-	{ "type666",   EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
+	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
 	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 
 	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
@@ -300,7 +302,15 @@ struct summary {
 	int nxdomain;			/* recursive query got nxdomain */
 	int nxdomaina;			/* recursive query got nxdomain */
 	int nxdomainaaaa;		/* recursive query got nxdomain */
+	int faileda;
+	int failedaaaa;
 	int seenrrsig;			/* a rrsig was seen in "do" test */
+	int seenopt;			/* see a EDNS response */
+	int seenedns;			/* see a EDNS response */
+	int seenfailure;		/* see a lookup failure */
+	int allok;			/* all answers are current ok */
+	int allrefused;			/* all answers are current ok */
+	int allservfail;		/* all answers are current ok */
 	struct summary *xlink;		/* cross link of recursive A/AAAA */
 	char results[sizeof(opts)/sizeof(opts[0])][100];
 };
@@ -436,6 +446,41 @@ printandfree(struct summary *summary) {
 		freesummary(summary);
 		return;
 	}
+	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
+	    summary->faileda && summary->failedaaaa) {
+		printf("%s. %s: address lookups failed\n",
+		       summary->zone, summary->ns);
+		freesummary(summary);
+		return;
+	}
+
+	/*
+	 * Do deferred xlink failure reports.
+	 */
+	if (summary->type == ns_t_a && summary->nodataa && summary->failedaaaa) {
+		printf("%s. %s:", summary->zone, summary->ns);
+		printf(" AAAAA lookup failed\n");
+		freesummary(summary);
+		return;
+	}
+	if (summary->type == ns_t_aaaa && summary->nodataaaaa && summary->faileda) {
+		printf("%s. %s:", summary->zone, summary->ns);
+		printf(" A lookup failed\n");
+		freesummary(summary);
+		return;
+	}
+	if (summary->type == ns_t_a && summary->faileda && summary->nxdomainaaaa) {
+		printf("%s. %s:", summary->zone, summary->ns);
+		printf(" AAAAA nxdomain\n");
+		freesummary(summary);
+		return;
+	}
+	if (summary->type == ns_t_aaaa && summary->failedaaaa && summary->nxdomaina) {
+		printf("%s. %s:", summary->zone, summary->ns);
+		printf(" A nxdomain\n");
+		freesummary(summary);
+		return;
+	}
 
 	if (summary->done || summary->nodataa || summary->nodataaaaa) {
 		freesummary(summary);
@@ -474,7 +519,11 @@ printandfree(struct summary *summary) {
 		return;
 	}
 
-	if (summary->type != 0) {
+	if (summary->seenopt && (summary->allrefused && summary->allservfail))
+		summary->seenedns = 1;
+
+	if (summary->type != 0 || (summary->allok && bad) ||
+	    (!summary->seenfailure && !summary->seenedns && ednsonly)) {
 		freesummary(summary);
 		return;
 	}
@@ -518,19 +567,18 @@ report(struct summary *summary) {
 	 * Send the next test now that we have completed the last test.
 	 */
 	if (serial && summary->type == 0 && summary->tests == 1) {
-		unsigned int i = summary->last + 1;
-		for (; i < sizeof(opts)/sizeof(opts[0]); i++) {
+		for (summary->last++;
+		     summary->last < sizeof(opts)/sizeof(opts[0]);
+		     summary->last++) {
 			struct workitem *item;
-			if (opts[i].what != 0 && (opts[i].what & what) == 0) {
-				summary->last = i;
+			if (opts[summary->last].what != 0 &&
+			    (opts[summary->last].what & what) == 0)
 				continue;
-			}
-
 			item = calloc(1, sizeof(*item));
 			if (item == NULL)
 				continue;
 			item->summary = summary;
-			item->summary->last = item->test = i;
+			item->test = item->summary->last;
 			dotest(item);
 			return;
 		}
@@ -564,6 +612,16 @@ report(struct summary *summary) {
 			summary->xlink->nxdomainaaaa = 1;
 			summary->done = 1;
 		}
+		if (!summary->done) {
+			if (summary->type == ns_t_a) {
+				summary->xlink->faileda = 1;
+				summary->done = 1;
+			}
+			if (summary->type == ns_t_aaaa) {
+				summary->xlink->failedaaaa = 1;
+				summary->done = 1;
+			}
+		}
 
 		/*
 		 * Remove the cross link.
@@ -574,6 +632,12 @@ report(struct summary *summary) {
 			freesummary(summary);
 			goto print_deferred;
 		}
+	}
+	if (!summary->done) {
+		if (summary->type == ns_t_a)
+			summary->faileda = 1;
+		if (summary->type == ns_t_aaaa)
+			summary->failedaaaa = 1;
 	}
 
 	if (inorder && PREV(summary, link)) {
@@ -642,6 +706,7 @@ resend(struct workitem *item) {
 
 	if (fd == -1) {
 		addtag(item, "skipped");
+		item->summary->allok = 0;
 		freeitem(item);
 		return;
 	}
@@ -676,6 +741,8 @@ resend(struct workitem *item) {
 		nextserver(item);
 	} else {
 		addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 	}
 }
@@ -700,6 +767,7 @@ dotest(struct workitem *item) {
 
 	if (fd == -1) {
 		addtag(item, "skipped");
+		item->summary->allok = 0;
 		freeitem(item);
 		return;
 	}
@@ -791,6 +859,7 @@ dotest(struct workitem *item) {
 
 		if (tries == 0xffff) {
 			addtag(item, "skipped");
+			item->summary->allok = 0;
 			freeitem(item);
 			return;
 		}
@@ -838,6 +907,8 @@ dotest(struct workitem *item) {
 		APPEND(ids[item->id], item, idlink);
 	} else {
 		addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 	}
 }
@@ -889,6 +960,9 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 		APPEND(summaries, summary, link);
 
 	summary->storage = storage;
+	summary->allok = 1;
+	summary->allrefused = 1;
+	summary->allservfail = 1;
 
 	ns_makecanon(zone, summary->zone, sizeof(summary->zone));
 	i = strlen(summary->zone);
@@ -972,6 +1046,8 @@ dolookup(struct workitem *item, int type) {
 		if (++item->test < nservers)
 			goto again;
 		addtag(item, "skipped");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1408,7 +1484,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			}
 			if (options != (cp + rdlen))
 				goto err;
-		}
+		} else if (type == ns_t_opt)
+			goto err;
 		cp += rdlen;
 		if (debug)
 			printf("AD: %s./%u/%u/%u/%u\n",
@@ -1440,6 +1517,20 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	if (item->summary->type)
 		goto done;
 
+	if (seenopt)
+		item->summary->seenopt = 1;
+
+	if (seenopt && opcode == ns_o_query &&
+	    (rcode == ns_r_noerror || rcode == ns_r_nxdomain ||
+	     (rcode == 16 && opts[item->test].version != 0)))
+		item->summary->seenedns = 1;
+
+	if (rcode != ns_r_refused && opts[item->test].version == 0)
+		item->summary->allrefused = 0;
+
+	if (rcode != ns_r_servfail && opts[item->test].version == 0)
+		item->summary->allservfail = 0;
+
 	if (opts[item->test].version == 0) {
 		if (opts[item->test].opcode == 0 && rcode != 0)
 			addtag(item, rcodetext(rcode)), ok = 0;
@@ -1457,17 +1548,20 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "opt"), ok = 0;
 	if (opts[item->test].type == ns_t_soa)
 		if (opts[item->test].version == 0 &&
-		    !opts[item->test].ignore && !seensoa)
+		    !opts[item->test].ignore && !seensoa &&
+		    rcode == ns_r_noerror)
 			addtag(item, "nosoa"), ok = 0;
-	if (opts[item->test].type == ns_t_soa)
-		if (opts[item->test].version != 0 && seensoa)
+	if (opts[item->test].type == ns_t_soa && seensoa)
+		if (opts[item->test].version != 0 ||
+		    (rcode != ns_r_noerror &&
+		     opts[item->test].version == 0))
 			addtag(item, "soa"), ok = 0;
 	if (seenecho)
 		addtag(item, "echoed"), ok = 0;
 	if ((ednsttl & 0x8000) == 0 && seenrrsig)
 		addtag(item, "nodo"), ok = 0;
 	if (!aa && opts[item->test].version == 0 &&
-	    opts[item->test].opcode == 0)
+	    rcode == ns_r_noerror && opts[item->test].opcode == 0)
 		addtag(item, "noaa"), ok = 0;
 	if (aa && opts[item->test].opcode != 0)
 		addtag(item, "aa"), ok = 0;
@@ -1489,6 +1583,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		item->summary->seenrrsig = 1;
 	if (ok)
 		addtag(item, "ok");
+	else
+		item->summary->allok = 0;
 	if (seennsid)
 		addtag(item, "nsid");
 	if (seenexpire)
@@ -1501,6 +1597,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	goto done;
  err:
 	addtag(item, "malformed");
+	item->summary->allok = 0;
+	item->summary->seenfailure = 1;
  done:
 	freeitem(item);
 }
@@ -1522,6 +1620,8 @@ tcpread(int fd) {
 	n = read(fd, item->tcpbuf + item->read, item->readlen - item->read);
 	if (n == 0) {
 		addtag(item, "eof");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1534,6 +1634,8 @@ tcpread(int fd) {
 			addtag(item, "pipe");
 		else
 			addtag(item, "read");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1579,6 +1681,8 @@ startread(struct workitem *item) {
 	n = writev(item->tcpfd, iov, iovcnt);
 	if (n != 2 + item->buflen) {
 		addtag(item, "writev");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 	}
 }
@@ -1609,6 +1713,8 @@ connectdone(int fd) {
 			addtag(item, "connection-refused");
 		else
 			addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1629,6 +1735,8 @@ connecttoserver(struct workitem *item) {
 		    SOCK_STREAM, IPPROTO_TCP);
 	if (fd == -1) {
 		addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1640,6 +1748,8 @@ connecttoserver(struct workitem *item) {
 	if (n == -1) {
 		close(fd);
 		addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1651,6 +1761,8 @@ connecttoserver(struct workitem *item) {
 	if (n == -1) {
 		close(fd);
 		addtag(item, "failed");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1681,6 +1793,8 @@ connecttoserver(struct workitem *item) {
 		else
 			addtag(item, "failed");
 		close(fd);
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 		return;
 	}
@@ -1887,13 +2001,15 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46cdefi:m:opr:st")) != -1) {
+	while ((n = getopt(argc, argv, "46bcdeEfi:m:opr:st")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
+		case 'b': bad = 1; break;
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
 		case 'e': what |= EDNS; break;
+		case 'E': ednsonly = 1; break;
 		case 'f': what |= EDNS | FULL; break;
 		case 'i': what = EXPL;
 			  for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
@@ -1915,9 +2031,11 @@ main(int argc, char **argv) {
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
+			printf("\t-b: only emit bad entries\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
 			printf("\t-e: edns test\n");
+			printf("\t-E: EDNS only\n");
 			printf("\t-f: add full mode tests (incl edns)\n");
 			printf("\t-i: individual test\n");
 			printf("\t-m: set maxoutstanding\n");
@@ -2028,6 +2146,8 @@ main(int argc, char **argv) {
 				nextserver(item);
 			} else {
 				addtag(item, "timeout");
+				item->summary->allok = 0;
+				item->summary->seenfailure = 1;
 				freeitem(item);
 			}
 			item = HEAD(work);
@@ -2042,20 +2162,11 @@ main(int argc, char **argv) {
 			     citem->when.tv_usec > now.tv_usec))
 				break;
 			addtag(citem, "timeout");
+			citem->summary->allok = 0;
+			citem->summary->seenfailure = 1;
 			freeitem(citem);
 			citem = HEAD(connecting);
 		}
-
-		/*
-		 * Make item be the earliest of item, citem.
-		 */
-		if (item && citem) {
-			if (citem->when.tv_sec < item->when.tv_sec ||
-			    (citem->when.tv_sec == item->when.tv_sec &&
-			     citem->when.tv_usec < item->when.tv_usec))
-				item = citem;
-		} else if (item == NULL)
-			item = citem;
 
 		/*
 		 * Has the TCP read timed out?
@@ -2066,9 +2177,25 @@ main(int argc, char **argv) {
 			     ritem->when.tv_usec > now.tv_usec))
 				break;
 			addtag(ritem, "timeout");
+			ritem->summary->allok = 0;
+			ritem->summary->seenfailure = 1;
 			freeitem(ritem);
 			ritem = HEAD(reading);
 		}
+
+		item = HEAD(work);
+		ritem = HEAD(reading);
+		citem = HEAD(connecting);
+		/*
+		 * Make item be the earliest of item, citem.
+		 */
+		if (item && citem) {
+			if (citem->when.tv_sec < item->when.tv_sec ||
+			    (citem->when.tv_sec == item->when.tv_sec &&
+			     citem->when.tv_usec < item->when.tv_usec))
+				item = citem;
+		} else if (item == NULL)
+			item = citem;
 
 		/*
 		 * Make item be the earliest of item, ritem.
