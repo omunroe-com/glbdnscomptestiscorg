@@ -2183,6 +2183,10 @@ main(int argc, char **argv) {
 			ritem = HEAD(reading);
 		}
 
+		/*
+		 * New items may have been added as the result of
+		 * calling freeitem.  Get the current list heads.
+		 */
 		item = HEAD(work);
 		ritem = HEAD(reading);
 		citem = HEAD(connecting);
