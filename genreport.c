@@ -513,7 +513,7 @@ printandfree(struct summary *summary) {
 		return;
 	}
 	if (summary->type == ns_t_ns) {
-		printf("%s. %s:", summary->zone, summary->ns);
+		printf("%s.:", summary->zone);
 		printf(" NS lookup failed\n");
 		freesummary(summary);
 		return;
