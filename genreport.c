@@ -1588,7 +1588,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "rd"), ok = 0;
 	if (!rd && opts[item->test].rd)
 		addtag(item, "nord"), ok = 0;
-	if (ad && (opts[item->test].opcode || !opts[item->test].ad))
+	if (ad && (opts[item->test].opcode ||
+	    (!opts[item->test].ad && (opts[item->test].flags & 0x8000) == 0)))
 		addtag(item, "ad"), ok = 0;
 	if (cd && (opts[item->test].opcode || !opts[item->test].cd))
 		addtag(item, "cd"), ok = 0;
