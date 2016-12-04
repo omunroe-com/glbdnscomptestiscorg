@@ -39,12 +39,13 @@
 #define ns_t_nsec3 50
 #define ns_t_nsec3param 51
 #define ns_t_tlsa 52
+#define ns_t_smimea 53
 #define ns_t_hip 55
 #define ns_t_ninfo 56
 #define ns_t_talink 58
-#define ns_t_openpgpkey 59
 #define ns_t_cds 59
 #define ns_t_cdnskey 60
+#define ns_t_openpgpkey 61
 #define ns_t_csync 62
 #define ns_t_spf 99
 #define ns_t_nid 104
@@ -264,6 +265,7 @@ static struct {
 	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
 	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
 	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
+	{ "SMIMEA",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_smimea },
 	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
 	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
 	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
