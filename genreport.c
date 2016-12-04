@@ -74,6 +74,7 @@ static int ipv4only = 0;
 static int ipv6only = 0;
 
 static int bad  = 0;
+static int badtag  = 0;
 static int ednsonly  = 0;
 static int debug = 0;
 static int inorder = 0;
@@ -216,68 +217,68 @@ static struct {
 				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
 				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,  0, ns_t_soa },
-	{ "A",         TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
-	{ "NS",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
-	{ "MD",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
-	{ "MF",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
-	{ "CNAME",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
-	{ "SOA",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "MB",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
-	{ "MG",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
-	{ "MR",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
-	{ "NULL",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
-	{ "WKS",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
-	{ "PTR",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
-	{ "HINFO",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
-	{ "MINFO",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
-	{ "MX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
-	{ "TXT",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
-	{ "RP",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
-	{ "AFSDB",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
-	{ "X25",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
-	{ "ISDN",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
-	{ "RT",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
-	{ "NSAP",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
-	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
-	{ "SIG",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
-	{ "KEY",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
-	{ "PX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
-	{ "GPOS",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
-	{ "AAAA",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
-	{ "LOC",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
-	{ "NXT",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
-	{ "SRV",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
-	{ "NAPTR",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
-	{ "KX",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
-	{ "CERT",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
-	{ "A6",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
-	{ "DNAME",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
-	{ "APL",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
-	{ "DS",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
-	{ "SSHFP",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
-	{ "IPSECKEY",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
-	{ "RRSIG",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
-	{ "NSEC",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
-	{ "DNSKEY",    TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
-	{ "DHCID",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
-	{ "NSEC3",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
-	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
-	{ "TLSA",      TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
-	{ "HIP",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
-	{ "CDS",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
-	{ "CDNSKEY",   TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
-	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
-	{ "SPF",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
-	{ "NID",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
-	{ "L32",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
-	{ "L64",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
-	{ "LP",        TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
-	{ "EUI48",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
-	{ "EUI64",     TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
-	{ "URI",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
-	{ "CAA",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
-	{ "DLV",       TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
-	{ "TYPE1000",  TYPE,  0, "",    0, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
+	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
+	{ "NS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
+	{ "MD",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
+	{ "MF",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
+	{ "CNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
+	{ "SOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "MB",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
+	{ "MG",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
+	{ "MR",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
+	{ "NULL",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
+	{ "WKS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
+	{ "PTR",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
+	{ "HINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
+	{ "MINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
+	{ "MX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
+	{ "TXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
+	{ "RP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
+	{ "AFSDB",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
+	{ "X25",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
+	{ "ISDN",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
+	{ "RT",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
+	{ "NSAP",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
+	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
+	{ "SIG",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
+	{ "KEY",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
+	{ "PX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
+	{ "GPOS",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
+	{ "AAAA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
+	{ "LOC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
+	{ "NXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
+	{ "SRV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
+	{ "NAPTR",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
+	{ "KX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
+	{ "CERT",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
+	{ "A6",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
+	{ "DNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
+	{ "APL",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
+	{ "DS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
+	{ "SSHFP",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
+	{ "IPSECKEY",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
+	{ "RRSIG",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
+	{ "NSEC",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
+	{ "DNSKEY",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "DHCID",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
+	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
+	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
+	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
+	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
+	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
+	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
+	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
+	{ "SPF",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
+	{ "NID",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
+	{ "L32",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
+	{ "L64",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
+	{ "LP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
+	{ "EUI48",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
+	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
+	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
+	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
+	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
+	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
 };
 
 /*
@@ -549,10 +550,18 @@ printandfree(struct summary *summary) {
 			strlcpy(summary->results[i], "skipped", 100);
 		if (strcmp(opts[i].name, "do") == 0)
 			x = i;
-		if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1) {
+		if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
+		    (!badtag || (strcmp(summary->results[x], "ok") != 0 &&
+				 strncmp(summary->results[x], "ok,", 3) != 0)))
+	        {
 			printf(" signed=%s", summary->results[x]);
 			if (summary->seenrrsig)
 				printf(",yes");
+		}
+		if (badtag) {
+			if (strcmp(summary->results[i], "ok") == 0 ||
+			    strncmp(summary->results[i], "ok,", 3) == 0)
+				continue;
 		}
 		printf(" %s=%s", opts[i].name, summary->results[i]);
 	}
@@ -1563,8 +1572,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			addtag(item, "soa"), ok = 0;
 	if (seenecho)
 		addtag(item, "echoed"), ok = 0;
-	if (seenrrsig &&
-	    (opts[item->test].flags & 0x8000) != 0 && (ednsttl & 0x8000) == 0)
+	if (seenrrsig && (opts[item->test].flags & 0x8000) != 0 &&
+	    (ednsttl & 0x8000) == 0)
 		addtag(item, "nodo"), ok = 0;
 	if (!aa && opts[item->test].version == 0 &&
 	    rcode == ns_r_noerror && opts[item->test].opcode == 0)
@@ -2007,11 +2016,12 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46bcdeEfi:m:opr:st")) != -1) {
+	while ((n = getopt(argc, argv, "46bBcdeEfi:m:opr:st")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
 		case 'b': bad = 1; break;
+		case 'B': badtag = 1; break;
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
 		case 'e': what |= EDNS; break;
@@ -2037,7 +2047,8 @@ main(int argc, char **argv) {
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
-			printf("\t-b: only emit bad entries\n");
+			printf("\t-b: only emit bad servers\n");
+			printf("\t-B: only emit bad tests\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
 			printf("\t-e: edns test\n");
