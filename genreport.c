@@ -74,6 +74,7 @@ static int udp6 = -1;
 static int ipv4only = 0;
 static int ipv6only = 0;
 
+static int allok  = 0;
 static int bad  = 0;
 static int badtag  = 0;
 static int ednsonly  = 0;
@@ -545,28 +546,31 @@ printandfree(struct summary *summary) {
 
 	x = -1;
 	printf("%s. @%s (%s.):", summary->zone, addrbuf, summary->ns);
-	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
-		if (opts[i].what != 0 && (opts[i].what & what) == 0)
-			continue;
-		if (summary->results[i][0] == 0)
-			strlcpy(summary->results[i], "skipped", 100);
-		if (strcmp(opts[i].name, "do") == 0)
-			x = i;
-		if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
-		    (!badtag || (strcmp(summary->results[x], "ok") != 0 &&
-				 strncmp(summary->results[x], "ok,", 3) != 0)))
-	        {
-			printf(" signed=%s", summary->results[x]);
-			if (summary->seenrrsig)
-				printf(",yes");
-		}
-		if (badtag) {
-			if (strcmp(summary->results[i], "ok") == 0 ||
-			    strncmp(summary->results[i], "ok,", 3) == 0)
+	if (allok && summary->allok)
+		printf(" all ok");
+	else
+		for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+			if (opts[i].what != 0 && (opts[i].what & what) == 0)
 				continue;
+			if (summary->results[i][0] == 0)
+				strlcpy(summary->results[i], "skipped", 100);
+			if (strcmp(opts[i].name, "do") == 0)
+				x = i;
+			if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
+			    (!badtag || (strcmp(summary->results[x], "ok") != 0 &&
+					 strncmp(summary->results[x], "ok,", 3) != 0)))
+			{
+				printf(" signed=%s", summary->results[x]);
+				if (summary->seenrrsig)
+					printf(",yes");
+			}
+			if (badtag) {
+				if (strcmp(summary->results[i], "ok") == 0 ||
+				    strncmp(summary->results[i], "ok,", 3) == 0)
+					continue;
+			}
+			printf(" %s=%s", opts[i].name, summary->results[i]);
 		}
-		printf(" %s=%s", opts[i].name, summary->results[i]);
-	}
 	printf("\n");
 	freesummary(summary);
 }
@@ -2019,10 +2023,11 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46bBcdeEfi:m:opr:st")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdeEfi:m:opr:st")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
+		case 'a': allok = 1; break;
 		case 'b': bad = 1; break;
 		case 'B': badtag = 1; break;
 		case 'c': what |= COMM; break;
@@ -2050,6 +2055,7 @@ main(int argc, char **argv) {
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
+			printf("\t-a: only emit all ok\n");
 			printf("\t-b: only emit bad servers\n");
 			printf("\t-B: only emit bad tests\n");
 			printf("\t-c: add common queries\n");
