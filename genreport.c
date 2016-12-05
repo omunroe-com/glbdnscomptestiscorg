@@ -59,6 +59,8 @@
 #define ns_t_ta 32768
 #define ns_t_dlv 32769
 
+#define ns_r_badcookie 23
+
 static int eof = 0;
 static int maxfd = -1;
 static fd_set rfds, wfds;
@@ -163,6 +165,7 @@ static struct {
 	unsigned short flags;		/* edns flags to be set */
 	unsigned short version;		/* edns version */
 	unsigned int tcp;		/* use tcp */
+	unsigned int cookie;		/* opt record has cookie */
 	unsigned int ignore;		/* ignore tc in response */
 	unsigned int tc;		/* set tc in request */
 	unsigned int rd;		/* set rd in request */
@@ -174,114 +177,136 @@ static struct {
 	unsigned int opcode;		/* use opcode for request */
 	unsigned short type;		/* query type code */
 } opts[] = {
-	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
-	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
-	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
-	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
-	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
-	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
-	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
-	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
-	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
+	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
+	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
+	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
+	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
+	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
+	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
+	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 
-	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
-	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
 	{ "ednsopt",   EDNS,  4, "\x00\x64\x00",
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns1opt",  EDNS,  4, "\x00\x64\x00",
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "do",        EDNS,  4, "\0\144\0",
-				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1do",   FULL,  0, "", 4096, 0x8000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "do",        EDNS,  0, "",
+				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1do",   FULL,  0, "", 4096, 0x8000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "optlist",   EDNS,  4 + 8 + 4 + 12,
 	  "\x00\x03\x00\x00" 		     /* NSID */
 	  "\x00\x08\x00\x04\x00\x01\x00\x00" /* ECS */
 	  "\x00\x09\x00\x00" 		     /* EXPIRE */
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",	/* COOKIE */
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1ecs",  FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1nsid", FULL,  4, "\x00\x03\x00\x00",
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1cook", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 
-	/*                           size   eflgs vr  T ig tc rd ra cd ad aa  z  op  type */
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "ednsnsid", FULL,  4, "\x00\x03\x00\x00",
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednscookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednsexpire", FULL, 4, "\x00\x09\x00\x00",
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednssubnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1nsid", FULL,  4, "\x00\x03\x00\x00",
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1cookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+				     4096, 0x0000, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1expire", FULL, 4, "\x00\x09\x00\x00",
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "edns1subnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
 	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x8000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
-				     4096, 0x0000, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0,  0, ns_t_soa },
-	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
-	{ "NS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
-	{ "MD",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
-	{ "MF",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
-	{ "CNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
-	{ "SOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "MB",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
-	{ "MG",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
-	{ "MR",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
-	{ "NULL",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
-	{ "WKS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
-	{ "PTR",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
-	{ "HINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
-	{ "MINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
-	{ "MX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
-	{ "TXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
-	{ "RP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
-	{ "AFSDB",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
-	{ "X25",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
-	{ "ISDN",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
-	{ "RT",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
-	{ "NSAP",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
-	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
-	{ "SIG",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
-	{ "KEY",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
-	{ "PX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
-	{ "GPOS",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
-	{ "AAAA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
-	{ "LOC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
-	{ "NXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
-	{ "SRV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
-	{ "NAPTR",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
-	{ "KX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
-	{ "CERT",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
-	{ "A6",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
-	{ "DNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
-	{ "APL",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
-	{ "DS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
-	{ "SSHFP",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
-	{ "IPSECKEY",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
-	{ "RRSIG",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
-	{ "NSEC",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
-	{ "DNSKEY",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
-	{ "DHCID",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
-	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
-	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
-	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
-	{ "SMIMEA",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_smimea },
-	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
-	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
-	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
-	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
-	{ "SPF",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
-	{ "NID",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
-	{ "L32",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
-	{ "L64",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
-	{ "LP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
-	{ "EUI48",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
-	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
-	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
-	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
-	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
-	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
+				     4096, 0x0000, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  0, ns_t_soa },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
+	{ "NS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
+	{ "MD",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
+	{ "MF",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
+	{ "CNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
+	{ "SOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "MB",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
+	{ "MG",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
+	{ "MR",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
+	{ "NULL",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
+	{ "WKS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
+	{ "PTR",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
+	{ "HINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
+	{ "MINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "MX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
+	{ "TXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
+	{ "RP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
+	{ "AFSDB",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
+	{ "X25",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
+	{ "ISDN",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
+	{ "RT",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
+	{ "NSAP",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
+	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
+	{ "SIG",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
+	{ "KEY",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
+	{ "PX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
+	{ "GPOS",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
+	{ "AAAA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
+	{ "LOC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "NXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
+	{ "SRV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
+	{ "NAPTR",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
+	{ "KX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
+	{ "CERT",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
+	{ "A6",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
+	{ "DNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
+	{ "APL",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
+	{ "DS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
+	{ "SSHFP",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
+	{ "IPSECKEY",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
+	{ "RRSIG",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
+	{ "NSEC",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "DNSKEY",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "DHCID",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
+	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
+	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
+	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
+	{ "SMIMEA",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_smimea },
+	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
+	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
+	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
+	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
+	{ "SPF",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
+	{ "NID",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
+	{ "L32",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
+
+	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
+	{ "L64",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
+	{ "LP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
+	{ "EUI48",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
+	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
+	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
+	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
+	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
+	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
 };
 
 /*
@@ -1011,19 +1036,19 @@ rcodetext(int code) {
 	static char buf[64];
 
 	switch(code) {
-	case 0: return("noerror");
-	case 1: return("formerr");
-	case 2: return("servfail");
-	case 3: return("nxdomain");
-	case 4: return("notimpl");
-	case 5: return("refused");
-	case 6: return("yxdomain");
-	case 7: return("yxrrset");
-	case 8: return("nxrrset");
-	case 9: return("notauth");
-	case 10: return("notzone");
-	case 16: return("badvers");
-	case 23: return("badcookie");
+	case ns_r_noerror: return("noerror");
+	case ns_r_formerr: return("formerr");
+	case ns_r_servfail: return("servfail");
+	case ns_r_nxdomain: return("nxdomain");
+	case ns_r_notimpl: return("notimpl");
+	case ns_r_refused: return("refused");
+	case ns_r_yxdomain: return("yxdomain");
+	case ns_r_yxrrset: return("yxrrset");
+	case ns_r_nxrrset: return("nxrrset");
+	case ns_r_notauth: return("notauth");
+	case ns_r_notzone: return("notzone");
+	case ns_r_badvers: return("badvers");
+	case ns_r_badcookie: return("badcookie");
 	default:
 		snprintf(buf, sizeof(buf), "rcode%u", code);
 		return (buf);
@@ -1268,16 +1293,19 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
 	int seenecho = 0;
 	char addrbuf[64];
+	int ednsvers = 0;
 	int ok = 1;
 
 	/* process message header */
 
 	id = buf[0] << 8| buf[1];
+
 	qr = (buf[2] >> 7) & 0x1;
 	opcode = (buf[2] >> 3) & 0xf;
 	aa = (buf[2] >> 2) & 0x1;
 	tc = (buf[2] >> 1) & 0x1;
 	rd = buf[2] & 0x1;
+
 	ra = (buf[3] >> 7) & 0x1;
 	z = (buf[3] >> 6) & 0x1;
 	ad = (buf[3] >> 5) & 0x1;
@@ -1322,17 +1350,17 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		 */
 		if (item->type == ns_t_a && type == ns_t_a &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == 0 && ancount == 0) {
+		    rcode == ns_r_noerror && ancount == 0) {
 			item->summary->nodataa = 1;
 		}
 		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == 0 && ancount == 0) {
+		    rcode == ns_r_noerror && ancount == 0) {
 			item->summary->nodataaaaa = 1;
 		}
 		if (item->type == ns_t_ns && type == ns_t_ns &&
 		    strcasecmp(item->summary->zone, name) == 0 &&
-		    rcode == 0 && ancount == 0)
+		    rcode == ns_r_noerror && ancount == 0)
 			item->summary->done = 1;
 
 		/*
@@ -1340,15 +1368,15 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		 */
 		if (item->type == ns_t_a && type == ns_t_a &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == 3 && ancount == 0)
+		    rcode == ns_r_nxdomain && ancount == 0)
 			item->summary->nxdomaina = 1;
 		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
 		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == 3 && ancount == 0)
+		    rcode == ns_r_nxdomain && ancount == 0)
 			item->summary->nxdomainaaaa = 1;
 		if (item->type == ns_t_ns && type == ns_t_ns &&
 		    strcasecmp(item->summary->zone, name) == 0 &&
-		    rcode == 3 && ancount == 0)
+		    rcode == ns_r_nxdomain && ancount == 0)
 			item->summary->nxdomain = 1;
 	}
 
@@ -1492,7 +1520,8 @@ process(struct workitem *item, unsigned char *buf, int n) {
 					seenecs = 1;
 				if (code == 9 && optlen == 4)
 					seenexpire = 1;
-				if (code == 10 && optlen >= 16 && optlen <= 24)
+				/* Server Cookie. */
+				if (code == 10 && optlen >= 16 && optlen <= 40)
 					seencookie = 1;
 				if (code == 100)
 					seenecho = 1;
@@ -1542,7 +1571,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 
 	if (seenopt && opcode == ns_o_query &&
 	    (rcode == ns_r_noerror || rcode == ns_r_nxdomain ||
-	     (rcode == 16 && opts[item->test].version != 0)))
+	     (rcode == ns_r_badvers && opts[item->test].version != 0)))
 		item->summary->seenedns = 1;
 
 	if (rcode != ns_r_refused && opts[item->test].version == 0)
@@ -1552,15 +1581,28 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		item->summary->allservfail = 0;
 
 	if (opts[item->test].version == 0) {
-		if (opts[item->test].opcode == 0 && rcode != 0)
+		/* Expect NOERROR / BADCOOKIE */
+		if (opts[item->test].opcode == 0 &&
+		    ((rcode != 0 && !opts[item->test].cookie) ||
+		     (rcode != 0 && (rcode != ns_r_badcookie || !seencookie) &&
+		      opts[item->test].cookie)))
 			addtag(item, rcodetext(rcode)), ok = 0;
+		/* Expect NOTIMP */
 		if (opts[item->test].opcode != 0 && rcode != 4)
 			addtag(item, rcodetext(rcode)), ok = 0;
 	}
+
+	/* Expect BADVERS to EDNS Version != 0 */
 	if (opts[item->test].version != 0)
-		if (rcode != 16) /* badvers */
+		if (rcode != ns_r_badvers)
 			addtag(item, rcodetext(rcode)), ok = 0;
-	if ((ednsttl & 0xff0000) != 0)
+
+	/* Only EDNS version 0 is currently defined. */
+	ednsvers = (ednsttl >> 16) & 0xff;
+	if (ednsvers != 0 || 
+	    (ednsvers < opts[item->test].version && rcode != ns_r_badvers &&
+	     rcode != ns_r_formerr) ||
+	    (ednsvers >= opts[item->test].version && rcode == ns_r_badvers))
 		addtag(item, "badversion"), ok = 0;
 	if (!seenopt && opts[item->test].udpsize)
 		addtag(item, "noopt"), ok = 0;
@@ -1581,27 +1623,45 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	if (seenrrsig && (opts[item->test].flags & 0x8000) != 0 &&
 	    (ednsttl & 0x8000) == 0)
 		addtag(item, "nodo"), ok = 0;
+
+	/* AA is only defined for QUERY */
 	if (!aa && opts[item->test].version == 0 &&
 	    rcode == ns_r_noerror && opts[item->test].opcode == 0)
 		addtag(item, "noaa"), ok = 0;
+
 	if (aa && opts[item->test].opcode != 0)
 		addtag(item, "aa"), ok = 0;
+
+	/* RA is only defined for QUERY */
 	if (ra && opts[item->test].opcode)
 		addtag(item, "ra"), ok = 0;
+
+	/* RD is only defined for QUERY */
 	if (rd && (opts[item->test].opcode || !opts[item->test].rd))
 		addtag(item, "rd"), ok = 0;
-	if (!rd && opts[item->test].rd)
+	if (!rd && opts[item->test].rd && opts[item->test].opcode == 0)
 		addtag(item, "nord"), ok = 0;
+
+	/* AD is only defined for QUERY */
 	if (ad && (opts[item->test].opcode ||
 	    (!opts[item->test].ad && (opts[item->test].flags & 0x8000) == 0)))
 		addtag(item, "ad"), ok = 0;
+
+	/* CD is only defined for QUERY */
 	if (cd && (opts[item->test].opcode || !opts[item->test].cd))
 		addtag(item, "cd"), ok = 0;
+
+	/* Last reserved bit.  It is not supposed to be echoed per
+	   RFC 1034. */
 	if (z)
 		addtag(item, "z"), ok = 0;
+
+	/* Only DO is currently defined. */
 	if ((ednsttl & 0x7fff) != 0)
 		addtag(item, "mbz"), ok = 0;
-	if (seenrrsig)
+
+	/* Only record seenrrsig if the test is "do". */
+	if (seenrrsig && strcmp(opts[item->test].name, "do") == 0)
 		item->summary->seenrrsig = 1;
 	if (ok)
 		addtag(item, "ok");
@@ -1611,8 +1671,12 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		addtag(item, "nsid");
 	if (seenexpire)
 		addtag(item, "expire");
-	if (seencookie)
-		addtag(item, "cookie");
+	if (seencookie) {
+		if (rcode == ns_r_badcookie && opts[item->test].cookie)
+			addtag(item, "cookie+badcookie");
+		else
+			addtag(item, "cookie");
+	}
 	if (seenecs)
 		addtag(item, "subnet");
 
