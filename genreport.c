@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <resolv.h>
+#include <signal.h>
 
 #define ns_t_dname 39
 #define ns_t_sink 40
@@ -82,7 +83,8 @@ static int badtag  = 0;
 static int ednsonly  = 0;
 static int debug = 0;
 static int inorder = 0;
-static int serial  = 0;
+static int serial = 0;
+static long long sent;
 
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
@@ -333,6 +335,8 @@ struct summary {
 	int nxdomainaaaa;		/* recursive query got nxdomain */
 	int faileda;
 	int failedaaaa;
+	int cnamea;			/* Nameserver is CNAME */
+	int cnameaaaa;			/* Nameserver is CNAME */
 	int seenrrsig;			/* a rrsig was seen in "do" test */
 	int seenopt;			/* see a EDNS response */
 	int seenedns;			/* see a EDNS response */
@@ -475,6 +479,7 @@ printandfree(struct summary *summary) {
 		freesummary(summary);
 		return;
 	}
+
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->faileda && summary->failedaaaa) {
 		printf("%s. %s: address lookups failed\n",
@@ -483,28 +488,40 @@ printandfree(struct summary *summary) {
 		return;
 	}
 
+	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
+	    (summary->cnamea || summary->cnameaaaa)) {
+		printf("%s. %s: nameserver is a CNAME\n",
+		       summary->zone, summary->ns);
+		freesummary(summary);
+		return;
+	}
+
 	/*
 	 * Do deferred xlink failure reports.
 	 */
-	if (summary->type == ns_t_a && summary->nodataa && summary->failedaaaa) {
+	if (summary->type == ns_t_a &&
+	    summary->nodataa && summary->failedaaaa) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" AAAAA lookup failed\n");
 		freesummary(summary);
 		return;
 	}
-	if (summary->type == ns_t_aaaa && summary->nodataaaaa && summary->faileda) {
+	if (summary->type == ns_t_aaaa &&
+	    summary->nodataaaaa && summary->faileda) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" A lookup failed\n");
 		freesummary(summary);
 		return;
 	}
-	if (summary->type == ns_t_a && summary->faileda && summary->nxdomainaaaa) {
+	if (summary->type == ns_t_a &&
+	    summary->faileda && summary->nxdomainaaaa) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" AAAAA nxdomain\n");
 		freesummary(summary);
 		return;
 	}
-	if (summary->type == ns_t_aaaa && summary->failedaaaa && summary->nxdomaina) {
+	if (summary->type == ns_t_aaaa &&
+	    summary->failedaaaa && summary->nxdomaina) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" A nxdomain\n");
 		freesummary(summary);
@@ -636,6 +653,14 @@ report(struct summary *summary) {
 	 * structure.
 	 */
 	if (summary->xlink) {
+		if (summary->cnamea) {
+			summary->xlink->cnamea = 1;
+			summary->done = 1;
+		}
+		if (summary->cnameaaaa) {
+			summary->xlink->cnameaaaa = 1;
+			summary->done = 1;
+		}
 		if (summary->nodataa) {
 			summary->xlink->nodataa = 1;
 			summary->done = 1;
@@ -770,6 +795,7 @@ resend(struct workitem *item) {
 			       opts[item->test].udpsize, opts[item->test].flags,
 			       opts[item->test].version, opts[item->test].tcp,
 			       opts[item->test].ignore, item->id);
+		sent++;
 		if (!item->outstanding++)
 			outstanding++;
 		gettimeofday(&item->when, NULL);
@@ -941,6 +967,7 @@ dotest(struct workitem *item) {
 			       opts[item->test].ignore, item->id);
 		if (!item->outstanding++)
 			outstanding++;
+		sent++;
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 1;
 		item->sends = 1;
@@ -1155,6 +1182,7 @@ dolookup(struct workitem *item, int type) {
 			printf("lookup %u id=%u\n", item->type, item->id);
 		if (!item->outstanding++)
 			outstanding++;
+		sent++;
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 1;
 		item->sends++;
@@ -1325,10 +1353,6 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	}
 
 	/* process message body */
-
-	if (item->type == ns_t_a || item->type == ns_t_aaaa)
-		strlcpy(ns, item->summary->ns, sizeof(ns));
-
 	cp = buf + 12;
 	eom = buf + n;
 	for (i = 0; i < qrcount; i++) {
@@ -1397,14 +1421,22 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		cp += 2;
 		if ((eom - cp) < rdlen)
 			goto err;
+		/* Don't follow CNAME for A and AAAA lookups. */
 		if ((item->type == ns_t_a || item->type == ns_t_aaaa) &&
-		    type == ns_t_cname && strcasecmp(ns, name) == 0) {
-			n = dn_expand(buf, eom, cp, ns, sizeof(ns));
-			if (n != rdlen)
-				goto err;
+		    type == ns_t_cname &&
+		    strcasecmp(item->summary->ns, name) == 0) {
+			if (item->type == ns_t_a)
+				item->summary->cnamea = 1;
+			else
+				item->summary->cnameaaaa = 1;
+		}
+		/* Don't follow CNAME for NS lookups. */
+		if (item->type == ns_t_ns && type == ns_t_cname &&
+		    strcasecmp(item->summary->zone, name) == 0) {
+			item->summary->done = 1;
 		}
 		if (item->type == ns_t_a && type == ns_t_a &&
-		    strcasecmp(ns, name) == 0)
+		    strcasecmp(item->summary->ns, name) == 0)
 		{
 			if (rdlen != 4)
 				goto err;
@@ -1414,7 +1446,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 			item->summary->done = 1;
 		}
 		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
-		    strcasecmp(ns, name) == 0)
+		    strcasecmp(item->summary->ns, name) == 0)
 		{
 			if (rdlen != 16)
 				goto err;
@@ -2075,9 +2107,16 @@ addserver(const char *hostname) {
 	}
 }
 
+static int stats;
+
+static void
+info(int sig) {
+	stats = 1;
+}
+
 int
 main(int argc, char **argv) {
-	struct timeval now, to, *tpo = NULL;
+	struct timeval now, to, start, *tpo = NULL;
 	struct workitem *item = NULL, *citem, *ritem;
 	fd_set myrfds, mywfds;
 	unsigned int i;
@@ -2138,6 +2177,8 @@ main(int argc, char **argv) {
 		}
 	}
 
+	signal(SIGINFO, info);
+
 	FD_ZERO(&rfds);
 	FD_ZERO(&wfds);
 
@@ -2172,6 +2213,8 @@ main(int argc, char **argv) {
 	if (!nservers)
 		nservers = res_getservers(&_res, servers,
 					  sizeof(servers)/sizeof(servers[0]));
+
+	gettimeofday(&start, NULL);
 
 	/*
 	 * Main work loop.
@@ -2219,8 +2262,16 @@ main(int argc, char **argv) {
 		item = HEAD(work);
 		ritem = HEAD(reading);
 		citem = HEAD(connecting);
-		if (item || citem || ritem)
+		if (item || citem || ritem || stats)
 			gettimeofday(&now, NULL);
+		if (stats) {
+			long long usecs, qps;
+			usecs = (now.tv_sec - start.tv_sec) * 1000000;
+			usecs += now.tv_usec - start.tv_usec;
+			qps = (sent * 1000000000) / usecs;
+			fprintf(stderr, "%llu.%03llu\n", qps/1000, qps%1000);
+			stats = 0;
+		}
 
 		/*
 		 * UDP work queue.
