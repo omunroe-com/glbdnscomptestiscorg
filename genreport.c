@@ -2126,7 +2126,7 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46abBcdeEfi:m:opr:st")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdeEfi:m:opr:stT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -2153,6 +2153,13 @@ main(int argc, char **argv) {
 		case 'r': addserver(optarg); break;
 		case 's': serial = 1; break;
 		case 't': what = TYPE; serial = 1; break;
+		case 'T': what = TYPE;
+			for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+				if (opts[i].what != 0 && (opts[i].what & what) == 0)
+					continue;
+				printf("%s\n", opts[i].name);
+			}
+			exit (0);
 		default:
 			printf("usage: genreport [-46cdfos] [-m maxoutstanding] "
 			       "[-r server]\n");
@@ -2173,6 +2180,7 @@ main(int argc, char **argv) {
 			printf("\t-r: use specified recursive server\n");
 			printf("\t-s: serialize tests\n");
 			printf("\t-t: type tests (serial)\n");
+			printf("\t-T: print type list for type test (-t)\n");
 			exit(0);
 		}
 	}
