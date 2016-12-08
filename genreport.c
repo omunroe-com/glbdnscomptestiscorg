@@ -2127,7 +2127,7 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 
-	while ((n = getopt(argc, argv, "46abBcdeEfi:m:opr:stT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdeEfi:Lm:opr:stT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -2145,6 +2145,16 @@ main(int argc, char **argv) {
 					opts[i].what |= EXPL;
 			  }
 			  break;
+		case 'L': 
+			for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+				printf("%s", opts[i].name);
+				if ((opts[i].what & EDNS) != 0) printf(" EDNS");
+				if ((opts[i].what & COMM) != 0) printf(" COMM");
+				if ((opts[i].what & FULL) != 0) printf(" FULL");
+				if ((opts[i].what & TYPE) != 0) printf(" TYPE");
+				printf("\n");
+			}
+			exit (0);
 		case 'm': n = strtol(optarg, &end, 10);
 			  if (*end == '0' && n > 10)
 				maxoutstanding = n;
@@ -2175,6 +2185,7 @@ main(int argc, char **argv) {
 			printf("\t-E: EDNS only\n");
 			printf("\t-f: add full mode tests (incl edns)\n");
 			printf("\t-i: individual test\n");
+			printf("\t-L: list tests and their grouping\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
 			printf("\t-p: parallelize tests\n");
