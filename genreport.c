@@ -197,9 +197,9 @@ static struct {
 	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
-	{ "ednsopt",   EDNS,  4, "\x00\x64\x00",
+	{ "ednsopt",   EDNS,  4, "\x00\x64\x00\x00",	/* 100 */
 				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1opt",  EDNS,  4, "\x00\x64\x00",
+	{ "edns1opt",  EDNS,  4, "\x00\x64\x00\x00",	/* 100 */
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "do",        EDNS,  0, "",
 				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
@@ -213,28 +213,28 @@ static struct {
 				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "ednsnsid", FULL,  4, "\x00\x03\x00\x00",
+	{ "ednsnsid", FULL,  4, "\x00\x03\x00\x00",	/* NSID */
 				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednscookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	{ "ednscookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
 				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednsexpire", FULL, 4, "\x00\x09\x00\x00",
+	{ "ednsexpire", FULL, 4, "\x00\x09\x00\x00",	/* EXPIRE */
 				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednssubnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",
+	{ "ednssubnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",	/* ECS */
 				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1nsid", FULL,  4, "\x00\x03\x00\x00",
+	{ "edns1nsid", FULL,  4, "\x00\x03\x00\x00",	/* NSID */
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1cookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	{ "edns1cookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
 				     4096, 0x0000, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1expire", FULL, 4, "\x00\x09\x00\x00",
+	{ "edns1expire", FULL, 4, "\x00\x09\x00\x00",	/* EXPIRE */
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1subnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",
+	{ "edns1subnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",	/* ECS */
 				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
 	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
 				     4096, 0x8000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",
+	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
 				     4096, 0x0000, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  0, ns_t_soa },
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
