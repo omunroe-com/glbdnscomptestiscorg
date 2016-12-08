@@ -358,7 +358,7 @@ struct workitem {
 		struct workitem *next;
 		struct workitem *prev;
 		int linked;
-	} link, clink, rlink, idlink;
+	} link, clink, plink, rlink, idlink;
 	unsigned short id;		/* the query id we are waiting for */
 	struct timeval when;		/* when we will timeout */
 	int type;			/* the query type being looked up */
@@ -381,6 +381,7 @@ struct workitem {
  *	'work' udp qeries;
  *	'connecting' tcp qeries;
  *	'reading' tcp qeries;
+ *	'pending' deferred work items;
  *
  * Outstanding queries by qid.
  *	'ids'
@@ -388,7 +389,7 @@ struct workitem {
 static struct {
 	struct workitem *head;
 	struct workitem *tail;
-} work, connecting, reading, ids[0x10000];
+} work, connecting, reading, pending, ids[0x10000];
 
 static void
 dotest(struct workitem *item);
@@ -734,6 +735,8 @@ freeitem(struct workitem * item) {
 		outstanding--;
 	if (LINKED(item, link))
 		UNLINK(work, item, link);
+	if (LINKED(item, plink))
+		UNLINK(pending, item, plink);
 	if (LINKED(item, rlink))
 		UNLINK(reading, item, rlink);
 	if (LINKED(item, clink))
@@ -779,8 +782,9 @@ resend(struct workitem *item) {
 	if (outstanding > maxoutstanding) {
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 1;
-		UNLINK(work, item, link);
-		APPEND(work, item, link);
+		if (LINKED(item, link))
+			UNLINK(work, item, link);
+		APPEND(pending, item, plink);
 		return;
 	}
 
@@ -801,7 +805,8 @@ resend(struct workitem *item) {
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 1;
 		item->sends++;
-		UNLINK(work, item, link);
+		if (LINKED(item, link))
+			UNLINK(work, item, link);
 		APPEND(work, item, link);
 	} else if (item->summary->type) {
 		nextserver(item);
@@ -947,7 +952,7 @@ dotest(struct workitem *item) {
 		if (outstanding > maxoutstanding) {
 			gettimeofday(&item->when, NULL);
 			item->when.tv_sec += 1;
-			APPEND(work, item, link);
+			APPEND(pending, item, plink);
 			APPEND(ids[item->id], item, idlink);
 			return;
 		}
@@ -1168,7 +1173,7 @@ dolookup(struct workitem *item, int type) {
 		if (outstanding > maxoutstanding) {
 			gettimeofday(&item->when, NULL);
 			item->when.tv_sec += 1;
-			APPEND(work, item, link);
+			APPEND(pending, item, plink);
 			APPEND(ids[item->id], item, idlink);
 			return;
 		}
@@ -2343,6 +2348,17 @@ main(int argc, char **argv) {
 			freeitem(ritem);
 			ritem = HEAD(reading);
 		}
+
+		/*
+		 * If we have space for pending items do them now.
+		 */
+		for (;;) {
+			item = HEAD(pending);
+			if (item == NULL || outstanding > maxoutstanding)
+				break;
+			UNLINK(pending, item, plink);
+			resend(item);
+		} 
 
 		/*
 		 * New items may have been added as the result of
