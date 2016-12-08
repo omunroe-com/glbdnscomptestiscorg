@@ -1339,6 +1339,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	ad = (buf[3] >> 5) & 0x1;
 	cd = (buf[3] >> 4) & 0x1;
 	rcode = buf[3] & 0xf;
+
 	qrcount = buf[4] << 8 | buf[5];
 	ancount = buf[6] << 8 | buf[7];
 	aucount = buf[8] << 8 | buf[9];
