@@ -2334,7 +2334,9 @@ main(int argc, char **argv) {
 
 		/*
 		 * New items may have been added as the result of
-		 * calling freeitem.  Get the current list heads.
+		 * calling freeitem when sending requests serially.
+		 * Get the current list heads so we can workout which
+		 * queue we are waiting for first.
 		 */
 		item = HEAD(work);
 		ritem = HEAD(reading);
