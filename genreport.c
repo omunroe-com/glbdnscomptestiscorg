@@ -864,6 +864,7 @@ dotest(struct workitem *item) {
 		/* Zero question section. */
 		if (opts[item->test].opcode == 15)
 			item->buf[4] = item->buf[5] = 0;
+		n = 12;
 	}
 
 	/*
@@ -884,7 +885,7 @@ dotest(struct workitem *item) {
 	if (opts[item->test].cd)
 		item->buf[3] |= 0x10;	/* set cd */
 
-	if (n > 0) {
+	if (n > 12) {
 		char name[1024];
 		/*
 		 * Make zone canonical.
@@ -1315,7 +1316,7 @@ lookupns(char *zone) {
  * Process a recieved response.
  */
 static void
-process(struct workitem *item, unsigned char *buf, int n) {
+process(struct workitem *item, unsigned char *buf, int buflen) {
 	char name[1024], ns[1024];
 	unsigned int i, id, qr, aa, tc, rd, ra, z, ad, cd;
 	unsigned int qrcount, ancount, aucount, adcount;
@@ -1325,6 +1326,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
 	int seenecho = 0;
+	int n;
 	char addrbuf[64];
 	int ednsvers = 0;
 	int ok = 1;
@@ -1360,7 +1362,7 @@ process(struct workitem *item, unsigned char *buf, int n) {
 
 	/* process message body */
 	cp = buf + 12;
-	eom = buf + n;
+	eom = buf + buflen;
 	for (i = 0; i < qrcount; i++) {
 		n = dn_expand(buf, eom, cp, name, sizeof(name));
 		if (n < 0 || (eom - cp) < n)
@@ -1635,12 +1637,16 @@ process(struct workitem *item, unsigned char *buf, int n) {
 		if (rcode != ns_r_badvers)
 			addtag(item, rcodetext(rcode)), ok = 0;
 
-	/* Only EDNS version 0 is currently defined. */
+	/*
+	 * Check seenopt as the default value for ednsttl is
+	 * not sufficient to prevent false positives.
+	 */
 	ednsvers = (ednsttl >> 16) & 0xff;
-	if (ednsvers != 0 || 
-	    (ednsvers < opts[item->test].version && rcode != ns_r_badvers &&
-	     rcode != ns_r_formerr) ||
-	    (ednsvers >= opts[item->test].version && rcode == ns_r_badvers))
+	if (seenopt && ednsvers != 0)
+		addtag(item, "version-not-zero"), ok = 0;
+	if (seenopt && 
+	    ((ednsvers < opts[item->test].version && rcode != ns_r_badvers) ||
+	     (ednsvers >= opts[item->test].version && rcode == ns_r_badvers)))
 		addtag(item, "badversion"), ok = 0;
 	if (!seenopt && opts[item->test].udpsize)
 		addtag(item, "noopt"), ok = 0;
@@ -1697,6 +1703,10 @@ process(struct workitem *item, unsigned char *buf, int n) {
 	/* Only DO is currently defined. */
 	if ((ednsttl & 0x7fff) != 0)
 		addtag(item, "mbz"), ok = 0;
+
+	if (opts[item->test].ignore &&
+	    buflen > (opts[item->test].udpsize ? opts[item->test].udpsize : 512))
+		addtag(item, "toobig"), ok = 0;
 
 	/* Only record seenrrsig if the test is "do". */
 	if (seenrrsig && strcmp(opts[item->test].name, "do") == 0)
@@ -2177,8 +2187,8 @@ main(int argc, char **argv) {
 			}
 			exit (0);
 		default:
-			printf("usage: genreport [-46cdfos] [-m maxoutstanding] "
-			       "[-r server]\n");
+			printf("usage: genreport [-46abBcdeEfLopstT] [-i test] "
+			       "[-m maxoutstanding] [-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
 			printf("\t-a: only emit all ok\n");
