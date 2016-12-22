@@ -1845,7 +1845,7 @@ startread(struct workitem *item) {
 
 	FD_SET(item->tcpfd, &rfds);
 	if (item->tcpfd > maxfd)
-		fprintf(stderr, "maxfd=%d\n", item->tcpfd), maxfd = item->tcpfd;
+		maxfd = item->tcpfd;
 	rhandlers[item->tcpfd] = tcpread;
 	gettimeofday(&item->when, NULL);
 	item->when.tv_sec += 10;
@@ -1922,7 +1922,14 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
-
+	if (fd >= FD_SETSIZE) {
+		close(fd);
+		addtag(item, "fdsetsize");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
+		freeitem(item);
+		return;
+	}
 	/*
 	 * Make the socket non blocking.
 	 */
@@ -1961,7 +1968,7 @@ connecttoserver(struct workitem *item) {
 		whandlers[fd] = connectdone;
 		FD_SET(fd, &wfds);
 		if (fd > maxfd)
-			fprintf(stderr, "maxfd=%d\n", fd), maxfd = fd;
+			maxfd = fd;
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 10;
 		APPEND(connecting, item, clink);
@@ -2215,6 +2222,8 @@ main(int argc, char **argv) {
 		case 'm': n = strtol(optarg, &end, 10);
 			  if (*end == '0' && n > 10)
 				maxoutstanding = n;
+			  if (maxoutstanding > FD_SETSIZE - 10)
+				maxoutstanding = FD_SETSIZE - 10;
 			  break;
 		case 'o': inorder = 1; break;
 		case 'p': serial = 0; break;
@@ -2260,11 +2269,15 @@ main(int argc, char **argv) {
 	FD_ZERO(&wfds);
 
 	FD_SET(0, &rfds);
-	fprintf(stderr, "maxfd=%d\n", 0), maxfd = 0;
+	maxfd = 0;
 	rhandlers[0] = readstdin;
 
 	if (!ipv6only)
 		udp4 = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (udp4 >= FD_SETSIZE) {
+		close(udp4);
+		udp4 = -1;
+	}
 	if (udp4 >= 0) {
 		/*
 		 * Make the socket non blocking.
@@ -2278,12 +2291,16 @@ main(int argc, char **argv) {
 	if (udp4 >= 0) {
 		FD_SET(udp4, &rfds);
 		if (udp4 > maxfd)
-			fprintf(stderr, "maxfd=%d\n", udp4), maxfd = udp4;
+			maxfd = udp4;
 		rhandlers[udp4] = udpread;
 	}
 
 	if (!ipv4only)
 		udp6 = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+	if (udp6 >= FD_SETSIZE) {
+		close(udp6);
+		udp6 = -1;
+	}
 	if (udp6 >= 0) {
 		/*
 		 * Make the socket non blocking.
@@ -2297,7 +2314,7 @@ main(int argc, char **argv) {
 	if (udp6 >= 0) {
 		FD_SET(udp6, &rfds);
 		if (udp6 > maxfd)
-			fprintf(stderr, "maxfd=%d\n", udp6), maxfd = udp6;
+			maxfd = udp6;
 		rhandlers[udp6] = udpread;
 	}
 
