@@ -6,6 +6,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+#define FD_SETSIZE 1600
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -637,6 +639,7 @@ report(struct summary *summary) {
 				continue;
 			item->summary = summary;
 			item->test = item->summary->last;
+			item->tcpfd = -1;
 			dotest(item);
 			return;
 		}
@@ -724,7 +727,7 @@ static void
 freeitem(struct workitem * item) {
 	if (item->summary)
 		report(item->summary);
-	if (item->tcpfd != 0) {
+	if (item->tcpfd != -1) {
 		FD_CLR(item->tcpfd, &rfds);
 		FD_CLR(item->tcpfd, &wfds);
 		rhandlers[item->tcpfd] = NULL;
@@ -779,7 +782,7 @@ resend(struct workitem *item) {
 		return;
 	}
 
-	if (outstanding > maxoutstanding) {
+	if (!item->outstanding && outstanding > maxoutstanding) {
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 1;
 		if (LINKED(item, link))
@@ -950,7 +953,7 @@ dotest(struct workitem *item) {
 		/*
 		 * If there is too much outstanding work queue this item.
 		 */
-		if (outstanding > maxoutstanding) {
+		if (!item->outstanding && outstanding > maxoutstanding) {
 			gettimeofday(&item->when, NULL);
 			item->when.tv_sec += 1;
 			APPEND(pending, item, plink);
@@ -1057,6 +1060,7 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 		item->summary = summary;
 		item->summary->tests++;
 		item->summary->last = item->test = i;
+		item->tcpfd = -1;
 		dotest(item);
 		if (serial)
 			break;
@@ -1171,7 +1175,7 @@ dolookup(struct workitem *item, int type) {
 		item->buf[1] = id & 0xff;
 		item->id = id;
 		item->buflen = n;
-		if (outstanding > maxoutstanding) {
+		if (!item->outstanding && outstanding > maxoutstanding) {
 			gettimeofday(&item->when, NULL);
 			item->when.tv_sec += 1;
 			APPEND(pending, item, plink);
@@ -1233,6 +1237,7 @@ lookupa(char *zone, char *ns, struct summary *parent) {
 		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	item->tcpfd = -1;
 	/*
 	 * Hold a reference so that caller can xlink.
 	 */
@@ -1276,6 +1281,7 @@ lookupaaaa(char *zone, char *ns, struct summary *parent) {
 		APPEND(summaries, summary, link);
 
 	item->summary = summary;
+	item->tcpfd = -1;
 	/*
 	 * Hold a reference so that caller can xlink.
 	 */
@@ -1309,6 +1315,7 @@ lookupns(char *zone) {
 
 	APPEND(summaries, summary, link);
 	item->summary = summary;
+	item->tcpfd = -1;
 	dolookup(item, ns_t_ns);
 }
 
@@ -1352,13 +1359,6 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	aucount = buf[8] << 8 | buf[9];
 	adcount = buf[10] << 8 | buf[11];
 
-	if (tc && item->tcpfd == 0 &&
-	    (item->summary->type || !opts[item->test].ignore)) {
-		if (LINKED(item, link))
-			UNLINK(work, item, link);
-		connecttoserver(item);
-		return;
-	}
 
 	/* process message body */
 	cp = buf + 12;
@@ -1376,6 +1376,46 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		cp += 2;
 		if (debug)
 			printf("QR: %s./%u/%u\n", name, type, class);
+
+		/*
+		 * Does the QNAME / QTYPE match?
+		 */
+		if (item->type == 0 &&
+		    (strcasecmp(item->summary->zone, name) != 0 ||
+		     type != opts[item->test].type)) {
+			if (item->tcpfd != -1) {
+				addtag(item, "mismatch");
+				freeitem(item);
+			}
+			return;
+		}
+
+		if (item->type == ns_t_ns &&
+		    (strcasecmp(item->summary->zone, name) != 0 ||
+		     type != ns_t_ns)) {
+			if (item->tcpfd != -1) {
+				addtag(item, "mismatch");
+				freeitem(item);
+			}
+			return;
+		}
+
+		if ((item->type == ns_t_a || item->type == ns_t_aaaa) &&
+		    (strcasecmp(item->summary->ns, name) != 0 ||
+		     type != item->type)) {
+			if (item->tcpfd != -1) {
+				addtag(item, "mismatch");
+				freeitem(item);
+			}
+			return;
+		}
+
+		/*
+		 * If the answer is trunctated continue processing
+		 * this section then fallback to TCP.
+		 */
+		if (tc && item->tcpfd == -1)
+			continue;
 
 		/*
 		 * No address / NS records?
@@ -1410,6 +1450,14 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		    strcasecmp(item->summary->zone, name) == 0 &&
 		    rcode == ns_r_nxdomain && ancount == 0)
 			item->summary->nxdomain = 1;
+	}
+
+	if (tc && item->tcpfd == -1 &&
+	    (item->summary->type || !opts[item->test].ignore)) {
+		if (LINKED(item, link))
+			UNLINK(work, item, link);
+		connecttoserver(item);
+		return;
 	}
 
 	for (i = 0; i < ancount; i++) {
@@ -1797,7 +1845,7 @@ startread(struct workitem *item) {
 
 	FD_SET(item->tcpfd, &rfds);
 	if (item->tcpfd > maxfd)
-		maxfd = item->tcpfd;
+		fprintf(stderr, "maxfd=%d\n", item->tcpfd), maxfd = item->tcpfd;
 	rhandlers[item->tcpfd] = tcpread;
 	gettimeofday(&item->when, NULL);
 	item->when.tv_sec += 10;
@@ -1913,7 +1961,7 @@ connecttoserver(struct workitem *item) {
 		whandlers[fd] = connectdone;
 		FD_SET(fd, &wfds);
 		if (fd > maxfd)
-			maxfd = fd;
+			fprintf(stderr, "maxfd=%d\n", fd), maxfd = fd;
 		gettimeofday(&item->when, NULL);
 		item->when.tv_sec += 10;
 		APPEND(connecting, item, clink);
@@ -1957,13 +2005,6 @@ readstdin(int fd) {
 
 	if (fgets(line, sizeof(line), stdin) == NULL) {
 		eof = 1;
-		FD_CLR(0, &rfds);
-		for (fd = maxfd; fd >= 0; fd--) {
-			if (FD_ISSET(fd, &rfds) || FD_ISSET(fd, &wfds)) {
-				break;
-			}
-		}
-		maxfd = fd;
 		return;
 	}
 	n = sscanf(line, "%1024s%1024s%1024s", zone, ns, address);
@@ -2031,13 +2072,13 @@ nextserver(struct workitem *item) {
 	/*
 	 * If we are in TCP mode cleanup.
 	 */
-	if (item->tcpfd != 0) {
+	if (item->tcpfd != -1) {
 		FD_CLR(item->tcpfd, &rfds);
 		FD_CLR(item->tcpfd, &wfds);
 		rhandlers[item->tcpfd] = NULL;
 		whandlers[item->tcpfd] = NULL;
 		close(item->tcpfd);
-		item->tcpfd = 0;
+		item->tcpfd = -1;
 	}
 
 	/*
@@ -2141,6 +2182,7 @@ main(int argc, char **argv) {
 	int nfds = 0;
 	int done = 0;
 	char *end;
+	int on = 1;
 
 	while ((n = getopt(argc, argv, "46abBcdeEfi:Lm:opr:stT")) != -1) {
 		switch (n) {
@@ -2218,24 +2260,44 @@ main(int argc, char **argv) {
 	FD_ZERO(&wfds);
 
 	FD_SET(0, &rfds);
-	maxfd = 0;
+	fprintf(stderr, "maxfd=%d\n", 0), maxfd = 0;
 	rhandlers[0] = readstdin;
 
 	if (!ipv6only)
 		udp4 = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (udp4 >= 0) {
+		/*
+		 * Make the socket non blocking.
+		 */
+		n = ioctl(udp4, FIONBIO, (void *)&on);
+		if (n == -1) {
+			close(udp4);
+			udp4 = -1;
+		}
+	}
+	if (udp4 >= 0) {
 		FD_SET(udp4, &rfds);
 		if (udp4 > maxfd)
-			maxfd = udp4;
+			fprintf(stderr, "maxfd=%d\n", udp4), maxfd = udp4;
 		rhandlers[udp4] = udpread;
 	}
 
 	if (!ipv4only)
 		udp6 = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (udp6 >= 0) {
+		/*
+		 * Make the socket non blocking.
+		 */
+		n = ioctl(udp6, FIONBIO, (void *)&on);
+		if (n == -1) {
+			close(udp6);
+			udp6 = -1;
+		}
+	}
+	if (udp6 >= 0) {
 		FD_SET(udp6, &rfds);
 		if (udp6 > maxfd)
-			maxfd = udp6;
+			fprintf(stderr, "maxfd=%d\n", udp6), maxfd = udp6;
 		rhandlers[udp6] = udpread;
 	}
 
@@ -2276,7 +2338,7 @@ main(int argc, char **argv) {
 		/*
 		 * Too much outstanding work stop looking for more.
 		 */
-		if (outstanding > maxoutstanding/2)
+		if (eof || outstanding > maxoutstanding/2)
 			FD_CLR(0, &myrfds);
 		n = select(nfds, &myrfds, &mywfds, NULL, tpo);
 		if (n > 0) {
@@ -2337,10 +2399,14 @@ main(int argc, char **argv) {
 			    (citem->when.tv_sec == now.tv_sec &&
 			     citem->when.tv_usec > now.tv_usec))
 				break;
-			addtag(citem, "timeout");
-			citem->summary->allok = 0;
-			citem->summary->seenfailure = 1;
-			freeitem(citem);
+			if (citem->type) {
+				nextserver(citem);
+			} else {
+				addtag(citem, "timeout");
+				citem->summary->allok = 0;
+				citem->summary->seenfailure = 1;
+				freeitem(citem);
+			}
 			citem = HEAD(connecting);
 		}
 
@@ -2352,10 +2418,14 @@ main(int argc, char **argv) {
 			    (ritem->when.tv_sec == now.tv_sec &&
 			     ritem->when.tv_usec > now.tv_usec))
 				break;
-			addtag(ritem, "timeout");
-			ritem->summary->allok = 0;
-			ritem->summary->seenfailure = 1;
-			freeitem(ritem);
+			if (ritem->type) {
+				nextserver(ritem);
+			} else {
+				addtag(ritem, "timeout");
+				ritem->summary->allok = 0;
+				ritem->summary->seenfailure = 1;
+				freeitem(ritem);
+			}
 			ritem = HEAD(reading);
 		}
 
@@ -2403,5 +2473,7 @@ main(int argc, char **argv) {
 
 		if (eof && item == NULL)
 			done = 1;
+		else
+			assert(item != NULL);
 	} while (!done);
 }
