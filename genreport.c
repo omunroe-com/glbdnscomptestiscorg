@@ -2490,7 +2490,5 @@ main(int argc, char **argv) {
 
 		if (eof && item == NULL)
 			done = 1;
-		else
-			assert(item != NULL);
 	} while (!done);
 }
