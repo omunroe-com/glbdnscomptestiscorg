@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <assert.h>
 
@@ -23,6 +24,12 @@
 #include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/uio.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
+#include <netinet/udp.h>
+#include <netinet/tcp.h>
 
 #include <errno.h>
 #include <netdb.h>
@@ -75,6 +82,8 @@ static void(*whandlers[FD_SETSIZE])(int);
 
 static int udp4 = -1;
 static int udp6 = -1;
+static int icmp4 = -1;
+static int icmp6 = -1;
 
 static int ipv4only = 0;
 static int ipv6only = 0;
@@ -90,6 +99,7 @@ static long long sent;
 
 static union res_sockaddr_union servers[10];
 static int nservers = 0;
+int ident = 0;
 
 /*
  * Doubly linked list macros.
@@ -360,7 +370,7 @@ struct workitem {
 		struct workitem *next;
 		struct workitem *prev;
 		int linked;
-	} link, clink, plink, rlink, idlink;
+	} link, clink, plink, rlink, idlink, seqlink;
 	unsigned short id;		/* the query id we are waiting for */
 	struct timeval when;		/* when we will timeout */
 	int type;			/* the query type being looked up */
@@ -387,11 +397,14 @@ struct workitem {
  *
  * Outstanding queries by qid.
  *	'ids'
+ *
+ * Outstanding icmp by seq.
+ *	'ids'
  */
 static struct {
 	struct workitem *head;
 	struct workitem *tail;
-} work, connecting, reading, pending, ids[0x10000];
+} work, connecting, reading, pending, ids[0x10000], seq[0x10000];
 
 static void
 dotest(struct workitem *item);
@@ -445,6 +458,21 @@ checkid(struct sockaddr_storage *storage, int id) {
 	while (item != NULL &&
 	       !storage_equal(storage, &item->summary->storage))
 		item = NEXT(item, idlink);
+	return ((item == NULL) ? 1 : 0);
+}
+
+/*
+ * Check if we have a outstanding icmp with this sequence number
+ * to this address.
+ */
+static int
+checkseq(struct sockaddr_storage *storage, int id) {
+	struct workitem *item;
+
+	item = HEAD(seq[id]);
+	while (item != NULL &&
+	       !storage_equal(storage, &item->summary->storage))
+		item = NEXT(item, seqlink);
 	return ((item == NULL) ? 1 : 0);
 }
 
@@ -746,6 +774,8 @@ freeitem(struct workitem * item) {
 		UNLINK(connecting, item, clink);
 	if (LINKED(item, idlink))
 		UNLINK(ids[item->id], item, idlink);
+	if (LINKED(item, seqlink))
+		UNLINK(seq[item->id], item, seqlink);
 	free(item);
 }
 
@@ -753,7 +783,7 @@ freeitem(struct workitem * item) {
  * Add a tag to the report.
  */
 static void
-addtag(struct workitem *item, char *tag) {
+addtag(struct workitem *item, const char *tag) {
 	char *result = item->summary->results[item->test];
 	if (result[0]) strlcat(result, ",", 100);
 	strlcat(result, tag, 100);
@@ -2040,6 +2070,366 @@ readstdin(int fd) {
 		lookupns(zone);
 }
 
+static struct workitem *
+finditem(struct sockaddr_storage *storage, int id) {
+        struct workitem *item = HEAD(ids[id]);
+        while (item != NULL &&
+               !storage_equal(storage, &item->summary->storage))
+                item = NEXT(item, idlink);
+	return (item);
+}
+
+static void
+icmp4read(int fd) {
+	struct workitem *item = NULL;
+	struct sockaddr_storage storage;
+	struct sockaddr_in *sin = (struct sockaddr_in *)&storage;
+	socklen_t len = sizeof(storage);
+	unsigned char buf[4096];
+	int n, hlen, offset, msgdata, id;
+	struct icmp *icmp;
+	struct udphdr *udphdr;
+	struct tcphdr *tcphdr;
+	const char *reason = NULL;
+
+	n = recvfrom(fd, buf, sizeof(buf), 0,
+		     (struct sockaddr *)&storage, &len);
+	if (n < 0)
+		return;
+	icmp = (struct icmp *)(buf);
+#if 0
+	fprintf(stderr, "icmp_type=%u icmp_code=%u icmp_cksum=%u\n",
+		icmp->icmp_type, icmp->icmp_code, icmp->icmp_cksum);
+#endif
+	switch (icmp->icmp_type) {
+	case ICMP_ECHOREPLY:
+		if (icmp->icmp_id != ident)
+			return;
+		int found = checkseq(&storage, icmp->icmp_seq);
+		fprintf(stderr, "found=%u icmp_id=%u icmp_seq=%u\n",
+			found, icmp->icmp_id, ntohs(icmp->icmp_seq));
+		break;
+	case ICMP_UNREACH:
+		hlen = icmp->icmp_ip.ip_hl << 2;
+		offset = offsetof(struct icmp, icmp_ip) + hlen;
+		if (icmp->icmp_ip.ip_p == IPPROTO_UDP &&
+		    n >= offset + sizeof(struct udphdr)) {
+			udphdr = (struct udphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct udphdr) + 2) {
+				msgdata = offset + sizeof(struct udphdr);
+				id = (buf[msgdata] << 8) + buf[msgdata + 1];
+				memset(&storage, 0, sizeof(storage));
+				sin->sin_family = AF_INET;
+				sin->sin_len = sizeof(*sin);
+				sin->sin_addr = icmp->icmp_ip.ip_dst;
+				sin->sin_port = udphdr->uh_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		if (icmp->icmp_ip.ip_p == IPPROTO_TCP &&
+		    n >= offset + sizeof(struct tcphdr)) {
+			tcphdr = (struct tcphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct tcphdr) + 4) {
+				msgdata = offset + sizeof(struct tcphdr);
+				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
+				memset(&storage, 0, sizeof(storage));
+				sin->sin_family = AF_INET;
+				sin->sin_len = sizeof(*sin);
+				sin->sin_addr = icmp->icmp_ip.ip_dst;
+				sin->sin_port = tcphdr->th_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		reason = "unreachable";
+		switch (icmp->icmp_code) {
+		case ICMP_UNREACH_NET:
+			reason = "net-unreachable";
+			break;
+		case ICMP_UNREACH_HOST:
+			reason = "host-unreachable";
+			break;
+		case ICMP_UNREACH_PROTOCOL:
+			reason = "proto-unreachable";
+			break;
+		case ICMP_UNREACH_PORT:
+			reason = "port-unreachable";
+			break;
+		case ICMP_UNREACH_NEEDFRAG:
+			reason = "need-frag";
+			break;
+		case ICMP_UNREACH_SRCFAIL:
+			reason = "source-fail";
+			break;
+		case ICMP_UNREACH_NET_UNKNOWN:
+			reason = "net-unknown";
+			break;
+		case ICMP_UNREACH_HOST_UNKNOWN:
+			reason = "host-unknown";
+			break;
+		case ICMP_UNREACH_ISOLATED:
+			reason = "isolated";
+			break;
+		case ICMP_UNREACH_NET_PROHIB:
+			reason = "net-prohibited";
+			break;
+		case ICMP_UNREACH_HOST_PROHIB:
+			reason = "host-prohibited";
+			break;
+		case ICMP_UNREACH_TOSNET:
+			reason = "net-tos";
+			break;
+		case ICMP_UNREACH_TOSHOST:
+			reason = "host-tos";
+			break;
+		case ICMP_UNREACH_FILTER_PROHIB:
+			reason = "filter-prohibited";
+			break;
+		case ICMP_UNREACH_HOST_PRECEDENCE:
+			reason = "host-precedence";
+			break;
+		case ICMP_UNREACH_PRECEDENCE_CUTOFF:
+			reason = "host-cutoff";
+			break;
+		}
+		break;
+	case ICMP_TIMXCEED:
+		hlen = icmp->icmp_ip.ip_hl << 2;
+		offset = offsetof(struct icmp, icmp_ip) + hlen;
+		if (icmp->icmp_ip.ip_p == IPPROTO_UDP &&
+		    n >= offset + sizeof(struct udphdr)) {
+			udphdr = (struct udphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct udphdr) + 2) {
+				msgdata = offset + sizeof(struct udphdr);
+				id = (buf[msgdata] << 8) + buf[msgdata + 1];
+				memset(&storage, 0, sizeof(storage));
+				sin->sin_family = AF_INET;
+				sin->sin_len = sizeof(*sin);
+				sin->sin_addr = icmp->icmp_ip.ip_dst;
+				sin->sin_port = udphdr->uh_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		if (icmp->icmp_ip.ip_p == IPPROTO_TCP &&
+		    n >= offset + sizeof(struct tcphdr)) {
+			tcphdr = (struct tcphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct tcphdr) + 4) {
+				msgdata = offset + sizeof(struct tcphdr);
+				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
+				memset(&storage, 0, sizeof(storage));
+				sin->sin_family = AF_INET;
+				sin->sin_len = sizeof(*sin);
+				sin->sin_addr = icmp->icmp_ip.ip_dst;
+				sin->sin_port = tcphdr->th_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		reason = "time-exceeded";
+		switch (icmp->icmp_code) {
+		case ICMP_TIMXCEED_INTRANS:
+			reason = "time-exceeded-intransit";
+			break;
+		case ICMP_TIMXCEED_REASS:
+			reason = "time-exceeded-reassembly";
+			break;
+		}
+		break;
+	case ICMP_UNREACH_NEEDFRAG:
+		fprintf(stderr, "icmp needfrag: %u for %s\n",
+			ntohs(icmp->icmp_nextmtu),
+			inet_ntoa(icmp->icmp_ip.ip_dst));
+		break;
+	}
+	if (item && reason) {
+		addtag(item, reason);
+		freeitem(item);
+	}
+}
+
+static void
+icmp6read(int fd) {
+	struct workitem *item = NULL;
+	struct sockaddr_storage storage;
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&storage;
+	socklen_t len = sizeof(storage);
+	unsigned char buf[4096];
+	struct ip6_hdr *ip6;
+	struct icmp6_hdr *icmp6;
+	struct udphdr *udphdr;
+	struct tcphdr *tcphdr;
+	int n, offset, msgdata, id, nxt;
+	const char *reason = NULL;
+
+	n = recvfrom(fd, buf, sizeof(buf), 0,
+		     (struct sockaddr *)&storage, &len);
+	if (n < 0)
+		return;
+	icmp6 = (struct icmp6_hdr *)buf;
+#if 0
+	fprintf(stderr, "icmp6_type=%u icmp6_code=%u icmp6_cksum=%u\n",
+		icmp6->icmp6_type, icmp6->icmp6_code, icmp6->icmp6_cksum);
+#endif
+
+	switch (icmp6->icmp6_type) {
+	case ICMP6_ECHO_REPLY:
+		if (icmp6->icmp6_id != ident)
+			return;
+		int found = checkseq(&storage, icmp6->icmp6_seq);
+		fprintf(stderr, "found=%u icmp6_id=%u icmp6_seq=%u\n",
+			found, icmp6->icmp6_id, ntohs(icmp6->icmp6_seq));
+		break;
+	case ICMP6_PACKET_TOO_BIG:
+		offset = offsetof(struct icmp6_hdr, icmp6_data8) + 4;
+		ip6 = (struct ip6_hdr *)&buf[offset];
+		offset += sizeof(struct ip6_hdr);
+		nxt = ip6->ip6_nxt;
+		/*
+		 * If this is the initial part of the packet extract
+		 * the next header value.
+		 */
+		if (nxt == IPPROTO_FRAGMENT && icmp6->icmp6_data8[2] == 0 &&
+		    (icmp6->icmp6_data8[3] & 0xf7) == 0) {
+			nxt = icmp6->icmp6_data8[0];
+			offset += 8;
+		}
+		if (nxt == IPPROTO_UDP &&
+		    n >= offset + sizeof(struct udphdr)) {
+			udphdr = (struct udphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct udphdr) + 2) {
+				msgdata = offset + sizeof(struct udphdr);
+				id = (buf[msgdata] << 8) + buf[msgdata + 1];
+				memset(&storage, 0, sizeof(storage));
+				sin6->sin6_family = AF_INET6;
+				sin6->sin6_len = sizeof(*sin6);
+				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
+				sin6->sin6_port = udphdr->uh_dport;
+				item = finditem(&storage, id);
+				if (item) {
+					resend(item);
+					item = NULL;
+				}
+			}
+		}
+		break;
+	case ICMP6_DST_UNREACH:
+		offset = offsetof(struct icmp6_hdr, icmp6_data8) + 4;
+		ip6 = (struct ip6_hdr *)&buf[offset];
+		offset += sizeof(struct ip6_hdr);
+		nxt = ip6->ip6_nxt;
+		/*
+		 * If this is the initial part of the packet extract
+		 * the next header value.
+		 */
+		if (nxt == IPPROTO_FRAGMENT && icmp6->icmp6_data8[2] == 0 &&
+		    (icmp6->icmp6_data8[3] & 0xf7) == 0) {
+			nxt = icmp6->icmp6_data8[0];
+			offset += 8;
+		}
+		if (nxt == IPPROTO_UDP &&
+		    n >= offset + sizeof(struct udphdr)) {
+			udphdr = (struct udphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct udphdr) + 2) {
+				msgdata = offset + sizeof(struct udphdr);
+				id = (buf[msgdata] << 8) + buf[msgdata + 1];
+				memset(&storage, 0, sizeof(storage));
+				sin6->sin6_family = AF_INET6;
+				sin6->sin6_len = sizeof(*sin6);
+				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
+				sin6->sin6_port = udphdr->uh_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		if (nxt == IPPROTO_TCP &&
+		    n >= offset + sizeof(struct tcphdr)) {
+			tcphdr = (struct tcphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct tcphdr) + 2) {
+				msgdata = offset + sizeof(struct tcphdr);
+				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
+				memset(&storage, 0, sizeof(storage));
+				sin6->sin6_family = AF_INET6;
+				sin6->sin6_len = sizeof(*sin6);
+				memcpy(&sin6->sin6_addr, &ip6->ip6_dst , 16);
+				sin6->sin6_port = tcphdr->th_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		reason = "unreachable";
+		switch (icmp6->icmp6_code) {
+		case ICMP6_DST_UNREACH_NOROUTE:
+			reason = "unreachable-noroute";
+			break;
+		case ICMP6_DST_UNREACH_ADMIN:
+			reason = "unreachable-admin";
+			break;
+		case ICMP6_DST_UNREACH_BEYONDSCOPE:
+			reason = "unreachable-scope";
+			break;
+		case ICMP6_DST_UNREACH_ADDR:
+			reason = "unreachable-address";
+			break;
+		case ICMP6_DST_UNREACH_NOPORT:
+			reason = "unreachable-port";
+			break;
+		}
+		break;
+	case ICMP6_TIME_EXCEEDED:
+		offset = offsetof(struct icmp6_hdr, icmp6_data8) + 4;
+		ip6 = (struct ip6_hdr *)&buf[offset];
+		offset += sizeof(struct ip6_hdr);
+		nxt = ip6->ip6_nxt;
+		/*
+		 * If this is the initial part of the packet extract
+		 * the next header value.
+		 */
+		if (nxt == IPPROTO_FRAGMENT && icmp6->icmp6_data8[2] == 0 &&
+		    (icmp6->icmp6_data8[3] & 0xf7) == 0) {
+			nxt = icmp6->icmp6_data8[0];
+			offset += 8;
+		}
+		if (nxt == IPPROTO_UDP &&
+		    n >= offset + sizeof(struct udphdr)) {
+			udphdr = (struct udphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct udphdr) + 2) {
+				msgdata = offset + sizeof(struct udphdr);
+				id = (buf[msgdata] << 8) + buf[msgdata + 1];
+				memset(&storage, 0, sizeof(storage));
+				sin6->sin6_family = AF_INET6;
+				sin6->sin6_len = sizeof(*sin6);
+				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
+				sin6->sin6_port = udphdr->uh_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		if (nxt == IPPROTO_TCP &&
+		    n >= offset + sizeof(struct tcphdr)) {
+			tcphdr = (struct tcphdr *)&buf[offset];
+			if (n >= offset + sizeof(struct tcphdr) + 2) {
+				msgdata = offset + sizeof(struct tcphdr);
+				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
+				memset(&storage, 0, sizeof(storage));
+				sin6->sin6_family = AF_INET6;
+				sin6->sin6_len = sizeof(*sin6);
+				memcpy(&sin6->sin6_addr, &ip6->ip6_dst , 16);
+				sin6->sin6_port = tcphdr->th_dport;
+				item = finditem(&storage, id);
+			}
+		}
+		reason = "time-exceeded";
+		switch (icmp6->icmp6_code) {
+		case ICMP6_TIME_EXCEED_TRANSIT:
+			reason = "time-exceeded-intransit";
+			break;
+		case ICMP6_TIME_EXCEED_REASSEMBLY:
+			reason = "time-exceeded-reassembly";
+			break;
+		}
+		break;
+	}
+	if (item && reason) {
+		addtag(item, reason);
+		freeitem(item);
+	}
+}
+
 static void
 udpread(int fd) {
 	struct workitem *item;
@@ -2191,7 +2581,7 @@ main(int argc, char **argv) {
 	char *end;
 	int on = 1;
 
-	while ((n = getopt(argc, argv, "46abBcdeEfi:Lm:opr:stT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdeEfi:I:Lm:opr:stT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -2208,6 +2598,15 @@ main(int argc, char **argv) {
 				if (strcasecmp(opts[i].name, optarg) == 0)
 					opts[i].what |= EXPL;
 			  }
+			  break;
+		case 'I': 
+			  for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+				if ((what & opts[i].what) != 0)
+					opts[i].what |= EXPL;
+				if (strcasecmp(opts[i].name, optarg) == 0)
+					opts[i].what &= ~EXPL;
+			  }
+			  what = EXPL;
 			  break;
 		case 'L': 
 			for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
@@ -2251,6 +2650,7 @@ main(int argc, char **argv) {
 			printf("\t-E: EDNS only\n");
 			printf("\t-f: add full mode tests (incl edns)\n");
 			printf("\t-i: individual test\n");
+			printf("\t-I: remove individual test\n");
 			printf("\t-L: list tests and their grouping\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-o: inorder output\n");
@@ -2262,6 +2662,8 @@ main(int argc, char **argv) {
 			exit(0);
 		}
 	}
+
+	ident = getpid() & 0xFFFF;
 
 	signal(SIGINFO, info);
 
@@ -2316,6 +2718,60 @@ main(int argc, char **argv) {
 		if (udp6 > maxfd)
 			maxfd = udp6;
 		rhandlers[udp6] = udpread;
+	}
+
+	if (!ipv6only)
+		icmp4 = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	if (icmp4 >= FD_SETSIZE) {
+		close(icmp4);
+		icmp4 = -1;
+	}
+	if (icmp4 >= 0) {
+		/*
+		 * Make the socket non blocking.
+		 */
+		n = ioctl(icmp4, FIONBIO, (void *)&on);
+		if (n == -1) {
+			close(icmp4);
+			icmp4 = -1;
+		}
+	}
+	if (icmp4 >= 0) {
+		n = setsockopt(icmp4, IPPROTO_IP, IP_STRIPHDR,
+			       (void *)&on, sizeof(on));
+		if (n == -1) {
+			close(icmp4);
+			icmp4 = -1;
+		}
+	}
+	if (icmp4 >= 0) {
+		FD_SET(icmp4, &rfds);
+		if (icmp4 > maxfd)
+			maxfd = icmp4;
+		rhandlers[icmp4] = icmp4read;
+	}
+
+	if (!ipv4only)
+		icmp6 = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+	if (icmp6 >= FD_SETSIZE) {
+		close(icmp6);
+		icmp6 = -1;
+	}
+	if (icmp6 >= 0) {
+		/*
+		 * Make the socket non blocking.
+		 */
+		n = ioctl(icmp6, FIONBIO, (void *)&on);
+		if (n == -1) {
+			close(icmp6);
+			icmp6 = -1;
+		}
+	}
+	if (icmp6 >= 0) {
+		FD_SET(icmp6, &rfds);
+		if (icmp6 > maxfd)
+			maxfd = icmp6;
+		rhandlers[icmp6] = icmp6read;
 	}
 
 	res_init();
