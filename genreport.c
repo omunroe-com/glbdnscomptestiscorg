@@ -66,6 +66,8 @@
 #define ns_t_eui64 109
 #define ns_t_uri 256
 #define ns_t_caa 257
+#define ns_t_avc 258
+#define ns_t_doa 259
 #define ns_t_ta 32768
 #define ns_t_dlv 32769
 
@@ -319,6 +321,8 @@ static struct {
 	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
 	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
 	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
+	{ "AVC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_avc },
+	{ "DOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_doa },
 	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
 	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
 };
@@ -1107,7 +1111,7 @@ rcodetext(int code) {
 	case ns_r_formerr: return("formerr");
 	case ns_r_servfail: return("servfail");
 	case ns_r_nxdomain: return("nxdomain");
-	case ns_r_notimpl: return("notimpl");
+	case ns_r_notimpl: return("notimp");
 	case ns_r_refused: return("refused");
 	case ns_r_yxdomain: return("yxdomain");
 	case ns_r_yxrrset: return("yxrrset");
@@ -1742,8 +1746,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 			addtag(item, "soa"), ok = 0;
 	if (seenecho)
 		addtag(item, "echoed"), ok = 0;
-	if (seenrrsig && (opts[item->test].flags & 0x8000) != 0 &&
-	    (ednsttl & 0x8000) == 0)
+	if (seenopt && (opts[item->test].flags & 0x8000) != 0 &&
+		       (ednsttl & 0x8000) == 0)
 		addtag(item, "nodo"), ok = 0;
 
 	/* AA is only defined for QUERY */
