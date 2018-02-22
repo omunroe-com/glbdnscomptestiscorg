@@ -1,0 +1,25 @@
+variables:
+  DEBIAN_FRONTEND: noninteractive
+  LC_ALL: C.UTF-8
+  DOCKER_DRIVER: overlay2
+
+stages:
+  - build
+
+build:debian:sid:amd64:
+  image: "debian:sid"
+  tags:
+    - linux
+    - docker
+  stage: build
+  before_script:
+    - apt-get update
+    - apt-get -y install autotools-dev build-essential autoconf automake libtool
+    - autoreconf -fi
+  script:
+    - ./configure
+    - make -k all V=1
+  artifacts:
+    expire_in: '1 week'
+    untracked: true
+    when: on_failure
