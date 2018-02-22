@@ -9,4 +9,22 @@ AC_USE_SYSTEM_EXTENSIONS
 AC_CANONICAL_HOST
 AC_CHECK_LIB(resolv,res_init)
 AC_CHECK_LIB(bind,res_init)
+AC_CHECK_HEADERS(sys/types.h netinet/in.h arpa/nameser.h resolv.h)
+AC_MSG_CHECKING(for res_getservers)
+AC_TRY_COMPILE([
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/nameser.h>
+#include <resolv.h>
+],
+[
+union res_sockaddr_union servers[10];
+res_getservers(&_res, &servers, sizeof(servers)/sizeof(*servers));
+],
+[
+AC_DEFINE([HAVE_RES_GETSERVERS], [1],
+	 [Define to 1 if you have the `res_getservers' function.])
+AC_MSG_RESULT(yes)
+],
+[AC_MSG_RESULT(no)])
 AC_OUTPUT

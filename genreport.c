@@ -8,6 +8,8 @@
 
 #define FD_SETSIZE 1600
 
+#include <config.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -35,6 +37,10 @@
 #include <netdb.h>
 #include <resolv.h>
 #include <signal.h>
+
+#ifndef FD_COPY
+#define FD_COPY(x, y) memmove(y, x, sizeof(*x))
+#endif
 
 #define ns_t_dname 39
 #define ns_t_sink 40
@@ -99,7 +105,16 @@ static int inorder = 0;
 static int serial = 0;
 static long long sent;
 
+
+#ifdef HAVE_RES_GETSERVERS
 static union res_sockaddr_union servers[10];
+#else
+static union {
+        struct sockaddr_in sin;
+        struct sockaddr_in6 sin6;
+} servers[10];
+#endif
+
 static int nservers = 0;
 int ident = 0;
 
@@ -427,7 +442,7 @@ storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
 	struct sockaddr_in *sin1, *sin2;
 	struct sockaddr_in6 *sin61, *sin62;
 
-	if (s1->ss_len != s2->ss_len || s1->ss_family != s2->ss_family)
+	if (s1->ss_family != s2->ss_family)
 		return (0);
 
 	switch (s1->ss_family) {
@@ -799,13 +814,16 @@ addtag(struct workitem *item, const char *tag) {
 static void
 resend(struct workitem *item) {
 	int n, fd = -1;
+	socklen_t ss_len;
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
 		fd = udp4;
+		ss_len = sizeof(struct sockaddr_in);
 		break;
 	case AF_INET6:
 		fd = udp6;
+		ss_len = sizeof(struct sockaddr_in6);
 		break;
 	}
 
@@ -826,8 +844,7 @@ resend(struct workitem *item) {
 	}
 
 	n = sendto(fd, item->buf, item->buflen, 0,
-		   (struct sockaddr *)&item->summary->storage,
-		   item->summary->storage.ss_len);
+		   (struct sockaddr *)&item->summary->storage, ss_len);
 	if (n > 0) {
 		if (debug)
 			printf("resend %s rdlen=%u udpsize=%u flags=%04x "
@@ -863,13 +880,17 @@ dotest(struct workitem *item) {
 	unsigned char *cp;
 	unsigned int ttl;
 	int n, fd, id, tries = 0, opcode;
+	socklen_t ss_len;
+	
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
 		fd = udp4;
+		ss_len = sizeof(struct sockaddr_in);
 		break;
 	case AF_INET6:
 		fd = udp6;
+		ss_len = sizeof(struct sockaddr_in6);
 		break;
 	}
 
@@ -996,8 +1017,7 @@ dotest(struct workitem *item) {
 		}
 
 		n = sendto(fd, item->buf, item->buflen, 0,
-			   (struct sockaddr *)&item->summary->storage,
-			   item->summary->storage.ss_len);
+			   (struct sockaddr *)&item->summary->storage, ss_len);
 	}
 
 	if (n > 0) {
@@ -1133,6 +1153,7 @@ static void
 dolookup(struct workitem *item, int type) {
 	char name[1024];
 	int n, fd = -1;
+	socklen_t ss_len;
 
 	item->summary->tests++;
 	item->summary->type = item->type = type;
@@ -1148,9 +1169,11 @@ dolookup(struct workitem *item, int type) {
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
 		fd = udp4;
+		ss_len = sizeof(struct sockaddr_in);
 		break;
 	case AF_INET6:
 		fd = udp6;
+		ss_len = sizeof(struct sockaddr_in6);
 		break;
 	}
 
@@ -1218,8 +1241,7 @@ dolookup(struct workitem *item, int type) {
 		}
 
 		n = sendto(fd, item->buf, item->buflen, 0,
-			   (struct sockaddr *)&item->summary->storage,
-			   item->summary->storage.ss_len);
+			   (struct sockaddr *)&item->summary->storage, ss_len);
 	}
 	if (n > 0) {
 		if (debug)
@@ -1946,6 +1968,7 @@ connectdone(int fd) {
 static void
 connecttoserver(struct workitem *item) {
 	int fd, n, on = 1;
+	socklen_t ss_len;
 
 	fd = socket(item->summary->storage.ss_family,
 		    SOCK_STREAM, IPPROTO_TCP);
@@ -1964,6 +1987,7 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
+
 	/*
 	 * Make the socket non blocking.
 	 */
@@ -1977,6 +2001,7 @@ connecttoserver(struct workitem *item) {
 		return;
 	}
 
+#ifdef SO_NOSIGPIPE
 	/*
 	 * Don't generate a SIG_PIPE if there is a I/O error on this socket.
 	 */
@@ -1989,12 +2014,21 @@ connecttoserver(struct workitem *item) {
 		freeitem(item);
 		return;
 	}
+#endif
+
+	switch (item->summary->storage.ss_family) {
+	case AF_INET:
+		ss_len = sizeof(struct sockaddr_in);
+		break;
+	case AF_INET6:
+		ss_len = sizeof(struct sockaddr_in6);
+		break;
+	}
 
 	/*
 	 * Start the actual connect.
 	 */
-	n = connect(fd, (struct sockaddr *)&item->summary->storage,
-		    item->summary->storage.ss_len);
+	n = connect(fd, (struct sockaddr *)&item->summary->storage, ss_len);
 	if (n == -1 && errno == EINPROGRESS) {
 		if (!item->outstanding++)
 			outstanding++;
@@ -2669,7 +2703,16 @@ main(int argc, char **argv) {
 
 	ident = getpid() & 0xFFFF;
 
+#ifdef SIGINFO
+	/* Preferred signal. */
 	signal(SIGINFO, info);
+#endif
+	signal(SIGUSR1, info);
+
+#ifndef SO_NOSIGPIPE
+	/* Ignore SIGPIPE if we can't set SO_NOSIGPIPE. */
+	signal(SIGPIPE, SIG_IGN);
+#endif
 
 	FD_ZERO(&rfds);
 	FD_ZERO(&wfds);
@@ -2741,8 +2784,12 @@ main(int argc, char **argv) {
 		}
 	}
 	if (icmp4 >= 0) {
+#ifdef IP_STRIPHDR
 		n = setsockopt(icmp4, IPPROTO_IP, IP_STRIPHDR,
 			       (void *)&on, sizeof(on));
+#else
+		n = -1;
+#endif
 		if (n == -1) {
 			close(icmp4);
 			icmp4 = -1;
@@ -2784,9 +2831,21 @@ main(int argc, char **argv) {
 	 * If we haven't been given recursive servers to use the
 	 * get the system's default servers.
 	 */
-	if (!nservers)
+#ifdef HAVE_RES_GETSERVERS
+	if (!nservers) {
 		nservers = res_getservers(&_res, servers,
 					  sizeof(servers)/sizeof(servers[0]));
+	}
+#else
+	/*
+	 * This does not support IPv6 nameservers.
+	 */
+	if (!nservers) {
+		memset(servers, 0, sizeof(servers));
+		for (;nservers < _res.nscount; nservers++)
+			servers[nservers].sin = _res.nsaddr_list[nservers];
+	}
+#endif
 
 	gettimeofday(&start, NULL);
 
