@@ -1,0 +1,12 @@
+*~
+*.bak
+/autom4te.cache/
+/configure
+/Makefile.in
+/Makefile
+*.o
+/genreport
+/config.log
+/config.status
+.deps/
+/configure
