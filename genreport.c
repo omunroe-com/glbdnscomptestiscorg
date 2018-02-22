@@ -616,7 +616,7 @@ printandfree(struct summary *summary) {
 	}
 
 	if (addr == NULL)
-		strlcpy(addrbuf, "<unknown>", sizeof(addrbuf));
+		strncpy(addrbuf, "<unknown>", sizeof(addrbuf));
 	else
 		inet_ntop(summary->storage.ss_family, addr,
 			  addrbuf, sizeof(addrbuf));
@@ -630,7 +630,7 @@ printandfree(struct summary *summary) {
 			if (opts[i].what != 0 && (opts[i].what & what) == 0)
 				continue;
 			if (summary->results[i][0] == 0)
-				strlcpy(summary->results[i], "skipped", 100);
+				strncpy(summary->results[i], "skipped", 100);
 			if (strcmp(opts[i].name, "do") == 0)
 				x = i;
 			if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
@@ -789,8 +789,8 @@ freeitem(struct workitem * item) {
 static void
 addtag(struct workitem *item, const char *tag) {
 	char *result = item->summary->results[item->test];
-	if (result[0]) strlcat(result, ",", 100);
-	strlcat(result, tag, 100);
+	if (result[0]) strncat(result, ",", 100);
+	strncat(result, tag, 100);
 }
 
 /*
@@ -929,7 +929,7 @@ dotest(struct workitem *item) {
 		 */
 		dn_expand(item->buf, item->buf + n, item->buf + 12,
 			  name, sizeof(name));
-		strlcpy(item->summary->zone, name,
+		strncpy(item->summary->zone, name,
 			sizeof(item->summary->zone));
 	}
 
@@ -1183,12 +1183,12 @@ dolookup(struct workitem *item, int type) {
 
 		switch (type) {
 		case ns_t_ns:
-			strlcpy(item->summary->zone, name,
+			strncpy(item->summary->zone, name,
 				sizeof(item->summary->zone));
 			break;
 		case ns_t_a:
 		case ns_t_aaaa:
-			strlcpy(item->summary->ns, name,
+			strncpy(item->summary->ns, name,
 				sizeof(item->summary->zone));
 			break;
 		}
