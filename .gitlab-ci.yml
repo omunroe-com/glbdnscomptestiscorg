@@ -1,3 +1,5 @@
+image: "debian:sid"
+
 variables:
   DEBIAN_FRONTEND: noninteractive
   LC_ALL: C.UTF-8
@@ -5,13 +7,13 @@ variables:
 
 stages:
   - build
+  - test
 
-build:debian:sid:amd64:
-  image: "debian:sid"
+build:
+  stage: build
   tags:
     - linux
     - docker
-  stage: build
   before_script:
     - apt-get update
     - apt-get -y install autotools-dev build-essential autoconf automake libtool
@@ -21,5 +23,16 @@ build:debian:sid:amd64:
     - make -k all V=1
   artifacts:
     expire_in: '1 week'
-    untracked: true
-    when: on_failure
+    paths:
+      - config.log
+      - genreport
+
+test:
+  stage: test
+  tags:
+    - linux
+    - docker
+  script:
+    - echo . f.root-servers.net | ./genreport
+  dependencies:
+    - build
