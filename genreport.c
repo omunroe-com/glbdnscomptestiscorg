@@ -1059,14 +1059,18 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 	memset(&storage, 0, sizeof(storage));
 	if (inet_pton(AF_INET6, address, &addr6) == 1) {
 		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&storage;
+#ifdef HAVE_SIN6_LEN
 		s->sin6_len = sizeof(struct sockaddr_in6);
+#endif
 		s->sin6_family = AF_INET6;
 		s->sin6_port = htons(53);
 		s->sin6_addr = addr6;
 		fd = udp6;
 	} else if (inet_pton(AF_INET, address, &addr) == 1) {
 		struct sockaddr_in *s = (struct sockaddr_in *)&storage;
+#ifdef HAVE_SIN_LEN
 		s->sin_len = sizeof(struct sockaddr_in);
+#endif
 		s->sin_family = AF_INET;
 		s->sin_port = htons(53);
 		s->sin_addr = addr;
@@ -2158,7 +2162,9 @@ icmp4read(int fd) {
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
 				sin->sin_family = AF_INET;
+#ifdef HAVE_SIN_LEN
 				sin->sin_len = sizeof(*sin);
+#endif
 				sin->sin_addr = icmp->icmp_ip.ip_dst;
 				sin->sin_port = udphdr->uh_dport;
 				item = finditem(&storage, id);
@@ -2172,7 +2178,9 @@ icmp4read(int fd) {
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
 				sin->sin_family = AF_INET;
+#ifdef HAVE_SIN_LEN
 				sin->sin_len = sizeof(*sin);
+#endif
 				sin->sin_addr = icmp->icmp_ip.ip_dst;
 				sin->sin_port = tcphdr->th_dport;
 				item = finditem(&storage, id);
@@ -2241,7 +2249,9 @@ icmp4read(int fd) {
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
 				sin->sin_family = AF_INET;
+#ifdef HAVE_SIN_LEN
 				sin->sin_len = sizeof(*sin);
+#endif
 				sin->sin_addr = icmp->icmp_ip.ip_dst;
 				sin->sin_port = udphdr->uh_dport;
 				item = finditem(&storage, id);
@@ -2255,7 +2265,9 @@ icmp4read(int fd) {
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
 				sin->sin_family = AF_INET;
+#ifdef HAVE_SIN_LEN
 				sin->sin_len = sizeof(*sin);
+#endif
 				sin->sin_addr = icmp->icmp_ip.ip_dst;
 				sin->sin_port = tcphdr->th_dport;
 				item = finditem(&storage, id);
@@ -2337,7 +2349,9 @@ icmp6read(int fd) {
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
 				sin6->sin6_family = AF_INET6;
+#ifdef HAVE_SIN6_LEN
 				sin6->sin6_len = sizeof(*sin6);
+#endif
 				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
 				sin6->sin6_port = udphdr->uh_dport;
 				item = finditem(&storage, id);
@@ -2370,7 +2384,9 @@ icmp6read(int fd) {
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
 				sin6->sin6_family = AF_INET6;
+#ifdef HAVE_SIN6_LEN
 				sin6->sin6_len = sizeof(*sin6);
+#endif
 				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
 				sin6->sin6_port = udphdr->uh_dport;
 				item = finditem(&storage, id);
@@ -2384,7 +2400,9 @@ icmp6read(int fd) {
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
 				sin6->sin6_family = AF_INET6;
+#ifdef HAVE_SIN6_LEN
 				sin6->sin6_len = sizeof(*sin6);
+#endif
 				memcpy(&sin6->sin6_addr, &ip6->ip6_dst , 16);
 				sin6->sin6_port = tcphdr->th_dport;
 				item = finditem(&storage, id);
@@ -2431,7 +2449,9 @@ icmp6read(int fd) {
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
 				sin6->sin6_family = AF_INET6;
+#ifdef HAVE_SIN6_LEN
 				sin6->sin6_len = sizeof(*sin6);
+#endif
 				memcpy(&sin6->sin6_addr, &ip6->ip6_dst, 16);
 				sin6->sin6_port = udphdr->uh_dport;
 				item = finditem(&storage, id);
@@ -2445,7 +2465,9 @@ icmp6read(int fd) {
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
 				sin6->sin6_family = AF_INET6;
+#ifdef HAVE_SIN6_LEN
 				sin6->sin6_len = sizeof(*sin6);
+#endif
 				memcpy(&sin6->sin6_addr, &ip6->ip6_dst , 16);
 				sin6->sin6_port = tcphdr->th_dport;
 				item = finditem(&storage, id);
