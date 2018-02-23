@@ -7,8 +7,9 @@ AC_CONFIG_HEADER([config.h])
 AC_CONFIG_FILES([Makefile])
 AC_USE_SYSTEM_EXTENSIONS
 AC_CANONICAL_HOST
-AC_CHECK_LIB(resolv,res_init)
-AC_CHECK_LIB(bind,res_init)
+AC_SEARCH_LIBS([res_mkquery],[resolv bind])
+AC_SEARCH_LIBS([res_9_mkquery],[resolv bind])
+AC_SEARCH_LIBS([__res_mkquery],[resolv bind])
 AC_CHECK_HEADERS(sys/types.h netinet/in.h arpa/nameser.h resolv.h)
 AC_MSG_CHECKING(for res_getservers)
 AC_TRY_COMPILE([
