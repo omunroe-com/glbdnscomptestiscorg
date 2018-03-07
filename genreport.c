@@ -2698,7 +2698,7 @@ main(int argc, char **argv) {
 			exit (0);
 		default:
 			printf("usage: genreport [-46abBcdeEfLopstT] [-i test] "
-			       "[-m maxoutstanding] [-r server]\n");
+			       "[-I test] [-m maxoutstanding] [-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
 			printf("\t-a: only emit all ok\n");
