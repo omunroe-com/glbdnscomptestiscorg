@@ -1,23 +1,27 @@
-FIXME: Write at least a basic README file on usage, so at least this for now:
+                 DNS Compliance Testing
 
-usage: genreport [-46abBcdeEfLopstT] [-i test] [-m maxoutstanding] [-r server]
-	-4: IPv4 servers only
-	-6: IPv6 servers only
-	-a: only emit all ok
-	-b: only emit bad servers
-	-B: only emit bad tests
-	-c: add common queries
-	-d: enable debugging
-	-e: edns test
-	-E: EDNS only
-	-f: add full mode tests (incl edns)
-	-i: individual test
-	-I: remove individual test
-	-L: list tests and their grouping
-	-m: set maxoutstanding
-	-o: inorder output
-	-p: parallelize tests
-	-r: use specified recursive server
-	-s: serialize tests
-	-t: type tests (serial)
-	-T: print type list for type test (-t)
+Provide tools to allow Registries and Registrars (amongst others) to
+check the DNS protocol compliance of the servers they are delegating
+zones to.
+
+The first tool is 'genreport' which, by default, tests the EDNS compliance
+of the delegated servers.  genreport can also be configured to test which
+query types are also handled and other DNS protocol compliance issues.
+
+Testing of servers is needed because every time some extension has
+been used in the DNS, recursive server operators have discovered
+non-compliant authoritative servers, which have to be worked around
+to be able to return answers to the initiating client.
+
+genreport tests both extension that are currently in use and the
+handling of potential future extensions.
+
+genreport is designed to be fast without overloading the delegated
+servers.  e.g. it takes ~14 minutes to test every delegated server
+from the .GOV zone.
+
+genreport requires that libresolve / libbind be available (or be built
+into the C library).
+
+The man page for genreport provides a number of examples of how it can
+be used.
