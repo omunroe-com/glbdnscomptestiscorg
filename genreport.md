@@ -98,24 +98,70 @@ and addresses.
 
 ## Test all servers for a zone
 
-`% echo isc.org | genreport`
+`% echo isc.org | genreport -po`
 
-## Test a specific server for a zone
+This runs all the tests in parallel against a server (-p) and the output
+order (-o) is preserved.
+
+## Test a specific server for a zone by name
 
 `% echo isc.org ams.sns-pb.isc.org | genreport`
+
+## Test a specific server for a zone by address
+
+`% echo isc.org ams.sns-pb.isc.org 199.6.1.30 | genreport`
+
+The server name is ignored other than to be placed in the report.
 
 ## Test all servers in the root zone
 
 `% dig axfr . | awk '$4 == "NS" { print $1, $5 }' > list`  
-`% genreport -po < list`
+`% genreport -so < list`
 
 This generates a seperate list as the AXFR will timeout when the
-pipeline stalls. The tests are run in parallel (-p) and the output
-is reordered to preserve the input order (-o).
+pipeline stalls. The tests are run in serial (-s) against a server
+and the output is reordered to preserve the input order (-o).
+
+## Test all servers in the root zone against the in-zone address records
+
+`% dig axfr . |`  
+`> tr '[a-z]' '[A-Z]' |`  
+`> awk '$4 == "NS" {`  
+`>          ns[$1 " " $5] = $5`  
+`>      }`  
+`>      $4 == "A" {`  
+`>         if (a[$1]) {`  
+`>             a[$1] = a[$1] " " $5`  
+`>         } else {`  
+`>             a[$1] = $5`  
+`>         }`  
+`>      }`  
+`>      $4 == "AAAA" {`  
+`>          if (aaaa[$1]) {`  
+`>              aaaa[$1] = aaaa[$1] " " $5`  
+`>          } else {`  
+`>              aaaa[$1] = $5`  
+`>          }`  
+`>      }`  
+`>      END {`  
+`>          for (n in ns) {`  
+`>              split(n, k, " ")`  
+`>              if (a[k[2]]) {`  
+`>                  split(a[k[2]], l, " ")`  
+`>                  for (m in l) print(n, l[m])`  
+`>              }`  
+`>              if (aaaa[k[2]]) {`  
+`>                  split(aaaa[k[2]], l, " ")`  
+`>                  for (m in l) print(n, l[m])`  
+`>              }`  
+`>          }`  
+`>      }' |`  
+`> sort > list`  
+`% genreport -so < list`
 
 ## Test all the root servers handling of different query types.
 
-`echo . | /genreport -ta`
+`echo . | genreport -ta`
 
 As the type list is long we also collapse the output to "all ok" (-a)
 if all subtests to a particular server succeed.
@@ -147,7 +193,7 @@ if all subtests to a particular server succeed.
 : Send a plain DNS query with type code SOA and the remaining reserved DNS header flag set to 1.
 
 **opcode FULL**
-: Send a request with a unknown opcode (15);
+: Send a request with a unknown opcode (15).
 
 **opcodeflg FULL**
 : Send a request with a unknown opcode (15) and the following flag bits set to 1 (tc, rd, ra, cd, ad, aa, and z).
