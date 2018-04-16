@@ -1439,93 +1439,98 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	/* process message body */
 	cp = buf + 12;
 	eom = buf + buflen;
-	for (i = 0; i < qrcount; i++) {
-		n = dn_expand(buf, eom, cp, name, sizeof(name));
-		if (n < 0 || (eom - cp) < n)
-			goto err;
-		cp += n;
-		if ((eom - cp) < 4)
-			goto err;
-		type = ns_get16(cp);
-		cp += 2;
-		class = ns_get16(cp);
-		cp += 2;
-		if (debug)
-			printf("QR: %s./%u/%u\n", name, type, class);
+	if (opts[item->test].opcode != 0 && qrcount != 0) {
+		addtag(item, "non-empty-question-section"), ok = 0;
+	} else {
+		for (i = 0; i < qrcount; i++) {
+			n = dn_expand(buf, eom, cp, name, sizeof(name));
+			if (n < 0 || (eom - cp) < n)
+				goto err;
+			cp += n;
+			if ((eom - cp) < 4)
+				goto err;
+			type = ns_get16(cp);
+			cp += 2;
+			class = ns_get16(cp);
+			cp += 2;
+			if (debug)
+				printf("QR: %s./%u/%u\n", name, type, class);
 
-		/*
-		 * Does the QNAME / QTYPE match?
-		 */
-		if (item->type == 0 &&
-		    (strcasecmp(item->summary->zone, name) != 0 ||
-		     type != opts[item->test].type)) {
-			if (item->tcpfd != -1) {
-				addtag(item, "mismatch");
-				freeitem(item);
+			/*
+			 * Does the QNAME / QTYPE match?
+			 */
+			if (item->type == 0 &&
+			    (strcasecmp(item->summary->zone, name) != 0 ||
+			     type != opts[item->test].type)) {
+				if (item->tcpfd != -1) {
+					addtag(item, "mismatch");
+					freeitem(item);
+				}
+				return;
 			}
-			return;
-		}
 
-		if (item->type == ns_t_ns &&
-		    (strcasecmp(item->summary->zone, name) != 0 ||
-		     type != ns_t_ns)) {
-			if (item->tcpfd != -1) {
-				addtag(item, "mismatch");
-				freeitem(item);
+			if (item->type == ns_t_ns &&
+			    (strcasecmp(item->summary->zone, name) != 0 ||
+			     type != ns_t_ns)) {
+				if (item->tcpfd != -1) {
+					addtag(item, "mismatch");
+					freeitem(item);
+				}
+				return;
 			}
-			return;
-		}
 
-		if ((item->type == ns_t_a || item->type == ns_t_aaaa) &&
-		    (strcasecmp(item->summary->ns, name) != 0 ||
-		     type != item->type)) {
-			if (item->tcpfd != -1) {
-				addtag(item, "mismatch");
-				freeitem(item);
+			if ((item->type == ns_t_a ||
+			     item->type == ns_t_aaaa) &&
+			    (strcasecmp(item->summary->ns, name) != 0 ||
+			     type != item->type)) {
+				if (item->tcpfd != -1) {
+					addtag(item, "mismatch");
+					freeitem(item);
+				}
+				return;
 			}
-			return;
-		}
 
-		/*
-		 * If the answer is trunctated continue processing
-		 * this section then fallback to TCP.
-		 */
-		if (tc && item->tcpfd == -1)
-			continue;
+			/*
+			 * If the answer is trunctated continue processing
+			 * this section then fallback to TCP.
+			 */
+			if (tc && item->tcpfd == -1)
+				continue;
 
-		/*
-		 * No address / NS records?
-		 */
-		if (item->type == ns_t_a && type == ns_t_a &&
-		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == ns_r_noerror && ancount == 0) {
-			item->summary->nodataa = 1;
-		}
-		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
-		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == ns_r_noerror && ancount == 0) {
-			item->summary->nodataaaaa = 1;
-		}
-		if (item->type == ns_t_ns && type == ns_t_ns &&
-		    strcasecmp(item->summary->zone, name) == 0 &&
-		    rcode == ns_r_noerror && ancount == 0)
-			item->summary->done = 1;
+			/*
+			 * No address / NS records?
+			 */
+			if (item->type == ns_t_a && type == ns_t_a &&
+			    strcasecmp(item->summary->ns, name) == 0 &&
+			    rcode == ns_r_noerror && ancount == 0) {
+				item->summary->nodataa = 1;
+			}
+			if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
+			    strcasecmp(item->summary->ns, name) == 0 &&
+			    rcode == ns_r_noerror && ancount == 0) {
+				item->summary->nodataaaaa = 1;
+			}
+			if (item->type == ns_t_ns && type == ns_t_ns &&
+			    strcasecmp(item->summary->zone, name) == 0 &&
+			    rcode == ns_r_noerror && ancount == 0)
+				item->summary->done = 1;
 
-		/*
-		 * NXDOMAIN?
-		 */
-		if (item->type == ns_t_a && type == ns_t_a &&
-		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == ns_r_nxdomain && ancount == 0)
-			item->summary->nxdomaina = 1;
-		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
-		    strcasecmp(item->summary->ns, name) == 0 &&
-		    rcode == ns_r_nxdomain && ancount == 0)
-			item->summary->nxdomainaaaa = 1;
-		if (item->type == ns_t_ns && type == ns_t_ns &&
-		    strcasecmp(item->summary->zone, name) == 0 &&
-		    rcode == ns_r_nxdomain && ancount == 0)
-			item->summary->nxdomain = 1;
+			/*
+			 * NXDOMAIN?
+			 */
+			if (item->type == ns_t_a && type == ns_t_a &&
+			    strcasecmp(item->summary->ns, name) == 0 &&
+			    rcode == ns_r_nxdomain && ancount == 0)
+				item->summary->nxdomaina = 1;
+			if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
+			    strcasecmp(item->summary->ns, name) == 0 &&
+			    rcode == ns_r_nxdomain && ancount == 0)
+				item->summary->nxdomainaaaa = 1;
+			if (item->type == ns_t_ns && type == ns_t_ns &&
+			    strcasecmp(item->summary->zone, name) == 0 &&
+			    rcode == ns_r_nxdomain && ancount == 0)
+				item->summary->nxdomain = 1;
+		}
 	}
 
 	if (tc && item->tcpfd == -1 &&
@@ -1536,169 +1541,186 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		return;
 	}
 
-	for (i = 0; i < ancount; i++) {
-		n = dn_expand(buf, eom, cp, name, sizeof(name));
-		if (n < 0 || (eom - cp) < n)
-			goto err;
-		cp += n;
-		if ((eom - cp) < 8)
-			goto err;
-		type = ns_get16(cp);
-		cp += 2;
-		class = ns_get16(cp);
-		cp += 2;
-		ttl = ns_get32(cp);
-		cp += 4;
-		rdlen = ns_get16(cp);
-		cp += 2;
-		if ((eom - cp) < rdlen)
-			goto err;
-		/* Don't follow CNAME for A and AAAA lookups. */
-		if ((item->type == ns_t_a || item->type == ns_t_aaaa) &&
-		    type == ns_t_cname &&
-		    strcasecmp(item->summary->ns, name) == 0) {
-			if (item->type == ns_t_a)
-				item->summary->cnamea = 1;
-			else
-				item->summary->cnameaaaa = 1;
-		}
-		/* Don't follow CNAME for NS lookups. */
-		if (item->type == ns_t_ns && type == ns_t_cname &&
-		    strcasecmp(item->summary->zone, name) == 0) {
-			item->summary->done = 1;
-		}
-		if (item->type == ns_t_a && type == ns_t_a &&
-		    strcasecmp(item->summary->ns, name) == 0)
-		{
-			if (rdlen != 4)
+	if (opts[item->test].opcode != 0 && ancount != 0) {
+		addtag(item, "non-empty-answer-section"), ok = 0;
+	} else {
+		for (i = 0; i < ancount; i++) {
+			n = dn_expand(buf, eom, cp, name, sizeof(name));
+			if (n < 0 || (eom - cp) < n)
 				goto err;
-			inet_ntop(AF_INET, cp, addrbuf, sizeof(addrbuf));
-			check(item->summary->zone, item->summary->ns, addrbuf,
-			      item->summary);
-			item->summary->done = 1;
-		}
-		if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
-		    strcasecmp(item->summary->ns, name) == 0)
-		{
-			if (rdlen != 16)
+			cp += n;
+			if ((eom - cp) < 8)
 				goto err;
-			inet_ntop(AF_INET6, cp, addrbuf, sizeof(addrbuf));
-			check(item->summary->zone, item->summary->ns, addrbuf,
-			      item->summary);
-			item->summary->done = 1;
-		}
-		if (item->type == ns_t_ns && type == ns_t_ns &&
-		    strcasecmp(item->summary->zone, name) == 0)
-		{
-			struct summary *summarya, *summaryaaaa;
-			n = dn_expand(buf, eom, cp, ns, sizeof(ns));
-			if (n != rdlen)
+			type = ns_get16(cp);
+			cp += 2;
+			class = ns_get16(cp);
+			cp += 2;
+			ttl = ns_get32(cp);
+			cp += 4;
+			rdlen = ns_get16(cp);
+			cp += 2;
+			if ((eom - cp) < rdlen)
 				goto err;
-			item->summary->done = 1;
-			/*
-			 * Cross link A/AAAA lookups so that we can generate
-			 * a single NXDOMAIN / no address report.
-			 */
-			summarya = lookupa(item->summary->zone, ns,
-					   item->summary);
-			summaryaaaa = lookupaaaa(item->summary->zone, ns,
-						 item->summary);
-			if (summarya && summaryaaaa) {
-				summarya->xlink = summaryaaaa;
-				summaryaaaa->xlink = summarya;
+			/* Don't follow CNAME for A and AAAA lookups. */
+			if ((item->type == ns_t_a ||
+			     item->type == ns_t_aaaa) &&
+			    type == ns_t_cname &&
+			    strcasecmp(item->summary->ns, name) == 0) {
+				if (item->type == ns_t_a)
+					item->summary->cnamea = 1;
+				else
+					item->summary->cnameaaaa = 1;
 			}
-			/*
-			 * Release references.
-			 */
-			if (summarya) report(summarya);
-			if (summaryaaaa) report(summaryaaaa);
+			/* Don't follow CNAME for NS lookups. */
+			if (item->type == ns_t_ns && type == ns_t_cname &&
+			    strcasecmp(item->summary->zone, name) == 0) {
+				item->summary->done = 1;
+			}
+			if (item->type == ns_t_a && type == ns_t_a &&
+			    strcasecmp(item->summary->ns, name) == 0)
+			{
+				if (rdlen != 4)
+					goto err;
+				inet_ntop(AF_INET, cp,
+					  addrbuf, sizeof(addrbuf));
+				check(item->summary->zone, item->summary->ns,
+				      addrbuf, item->summary);
+				item->summary->done = 1;
+			}
+			if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
+			    strcasecmp(item->summary->ns, name) == 0)
+			{
+				if (rdlen != 16)
+					goto err;
+				inet_ntop(AF_INET6, cp,
+					  addrbuf, sizeof(addrbuf));
+				check(item->summary->zone, item->summary->ns,
+				      addrbuf, item->summary);
+				item->summary->done = 1;
+			}
+			if (item->type == ns_t_ns && type == ns_t_ns &&
+			    strcasecmp(item->summary->zone, name) == 0)
+			{
+				struct summary *summarya, *summaryaaaa;
+				n = dn_expand(buf, eom, cp, ns, sizeof(ns));
+				if (n != rdlen)
+					goto err;
+				item->summary->done = 1;
+				/*
+				 * Cross link A/AAAA lookups so that we can
+				 * generate a single NXDOMAIN / no address
+				 * report.
+				 */
+				summarya = lookupa(item->summary->zone, ns,
+						   item->summary);
+				summaryaaaa = lookupaaaa(item->summary->zone,
+							 ns, item->summary);
+				if (summarya && summaryaaaa) {
+					summarya->xlink = summaryaaaa;
+					summaryaaaa->xlink = summarya;
+				}
+				/*
+				 * Release references.
+				 */
+				if (summarya) report(summarya);
+				if (summaryaaaa) report(summaryaaaa);
+			}
+			cp += rdlen;
+			if (type == ns_t_soa &&
+			    strcasecmp(item->summary->zone, name) == 0)
+				seensoa = 1;
+			else if (type == ns_t_soa)
+			    printf("%s %s\n", item->summary->zone, name);
+			if (type == ns_t_rrsig)
+				seenrrsig = 1;
+			if (debug)
+				printf("AN: %s./%u/%u/%u/%u\n",
+				       name, type, class, ttl, rdlen);
 		}
-		cp += rdlen;
-		if (type == ns_t_soa &&
-		    strcasecmp(item->summary->zone, name) == 0)
-			seensoa = 1;
-		else if (type == ns_t_soa)
-		    printf("%s %s\n", item->summary->zone, name);
-		if (type == ns_t_rrsig)
-			seenrrsig = 1;
-		if (debug)
-			printf("AN: %s./%u/%u/%u/%u\n",
-			       name, type, class, ttl, rdlen);
 	}
 
-	for (i = 0; i < aucount; i++) {
-		n = dn_expand(buf, eom, cp, name, sizeof(name));
-		if (n < 0 || (eom - cp) < n)
-			goto err;
-		cp += n;
-		if ((eom - cp) < 8)
-			goto err;
-		type = ns_get16(cp);
-		cp += 2;
-		class = ns_get16(cp);
-		cp += 2;
-		ttl = ns_get32(cp);
-		cp += 4;
-		rdlen = ns_get16(cp);
-		cp += 2;
-		if ((eom - cp) < rdlen)
-			goto err;
-		cp += rdlen;
-		if (debug)
-			printf("AU: %s./%u/%u/%u/%u\n",
-			       name, type, class, ttl, rdlen);
+	if (opts[item->test].opcode != 0 && aucount != 0) {
+		addtag(item, "non-empty-authority-section"), ok = 0;
+	} else {
+		for (i = 0; i < aucount; i++) {
+			n = dn_expand(buf, eom, cp, name, sizeof(name));
+			if (n < 0 || (eom - cp) < n)
+				goto err;
+			cp += n;
+			if ((eom - cp) < 8)
+				goto err;
+			type = ns_get16(cp);
+			cp += 2;
+			class = ns_get16(cp);
+			cp += 2;
+			ttl = ns_get32(cp);
+			cp += 4;
+			rdlen = ns_get16(cp);
+			cp += 2;
+			if ((eom - cp) < rdlen)
+				goto err;
+			cp += rdlen;
+			if (debug)
+				printf("AU: %s./%u/%u/%u/%u\n",
+				       name, type, class, ttl, rdlen);
+		}
 	}
 
-	for (i = 0; i < adcount; i++) {
-		n = dn_expand(buf, eom, cp, name, sizeof(name));
-		if (n < 0 || (eom - cp) < n)
-			goto err;
-		cp += n;
-		if ((eom - cp) < 8)
-			goto err;
-		type = ns_get16(cp);
-		cp += 2;
-		class = ns_get16(cp);
-		cp += 2;
-		ttl = ns_get32(cp);
-		cp += 4;
-		rdlen = ns_get16(cp);
-		cp += 2;
-		if ((eom - cp) < rdlen)
-			goto err;
-		if (type == ns_t_opt && !seenopt) {
-			unsigned char *options;
-			ednsttl = ttl;
-			ednssize = class;
-			seenopt = 1;
-			options = cp;
-			while (((cp + rdlen) - options) >= 4) {
-				unsigned int code, optlen;
-				code = ns_get16(options);
-				options += 2;
-				optlen = ns_get16(options);
-				options += 2;
-				if (code == 3 && optlen > 0)
-					seennsid = 1;
-				if (code == 8)
-					seenecs = 1;
-				if (code == 9 && optlen == 4)
-					seenexpire = 1;
-				/* Server Cookie. */
-				if (code == 10 && optlen >= 16 && optlen <= 40)
-					seencookie = 1;
-				if (code == 100)
-					seenecho = 1;
-				options += optlen;
-			}
-			if (options != (cp + rdlen))
+	if (opts[item->test].opcode != 0 && adcount != 0) {
+		addtag(item, "non-empty-authority-section"), ok = 0;
+	} else {
+		for (i = 0; i < adcount; i++) {
+			n = dn_expand(buf, eom, cp, name, sizeof(name));
+			if (n < 0 || (eom - cp) < n)
 				goto err;
-		} else if (type == ns_t_opt)
-			goto err;
-		cp += rdlen;
-		if (debug)
-			printf("AD: %s./%u/%u/%u/%u\n",
-			       name, type, class, ttl, rdlen);
+			cp += n;
+			if ((eom - cp) < 8)
+				goto err;
+			type = ns_get16(cp);
+			cp += 2;
+			class = ns_get16(cp);
+			cp += 2;
+			ttl = ns_get32(cp);
+			cp += 4;
+			rdlen = ns_get16(cp);
+			cp += 2;
+			if ((eom - cp) < rdlen)
+				goto err;
+			if (type == ns_t_opt && !seenopt) {
+				unsigned char *options;
+				ednsttl = ttl;
+				ednssize = class;
+				seenopt = 1;
+				options = cp;
+				while (((cp + rdlen) - options) >= 4) {
+					unsigned int code, optlen;
+					code = ns_get16(options);
+					options += 2;
+					optlen = ns_get16(options);
+					options += 2;
+					if (code == 3 && optlen > 0)
+						seennsid = 1;
+					if (code == 8)
+						seenecs = 1;
+					if (code == 9 && optlen == 4)
+						seenexpire = 1;
+					/* Server Cookie. */
+					if (code == 10 &&
+					    optlen >= 16 && optlen <= 40)
+						seencookie = 1;
+					if (code == 100)
+						seenecho = 1;
+					options += optlen;
+				}
+				if (options != (cp + rdlen))
+					goto err;
+			} else if (type == ns_t_opt)
+				goto err;
+			cp += rdlen;
+			if (debug)
+				printf("AD: %s./%u/%u/%u/%u\n",
+				       name, type, class, ttl, rdlen);
+		}
 	}
 	if (cp != eom)
 		goto err;
