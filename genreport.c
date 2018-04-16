@@ -1127,6 +1127,22 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 }
 
 static char *
+opcodetext(int code) {
+	static char buf[64];
+
+	switch(code) {
+	case ns_o_query: return("query");
+	case ns_o_iquery: return("iquery");
+	case ns_o_status: return("status");
+	case ns_o_notify: return("notify");
+	case ns_o_update: return("update");
+	default:
+		snprintf(buf, sizeof(buf), "opcode%u", code);
+		return (buf);
+	}
+}
+
+static char *
 rcodetext(int code) {
 	static char buf[64];
 
@@ -1727,6 +1743,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 
 	if (rcode != ns_r_servfail && opts[item->test].version == 0)
 		item->summary->allservfail = 0;
+
+	if (opts[item->test].opcode != opcode)
+		addtag(item, opcodetext(opcode)), ok = 0;
 
 	if (opts[item->test].version == 0) {
 		/* Expect NOERROR / BADCOOKIE */
@@ -2508,7 +2527,7 @@ udpread(int fd) {
 	if (!qr)
 		return;
 
-	id = buf[0] << 8| buf[1];
+	id = buf[0] << 8 | buf[1];
 	item = HEAD(ids[id]);
 	while (item != NULL &&
 	       !storage_equal(&storage, &item->summary->storage))
