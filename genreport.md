@@ -57,7 +57,7 @@ Options are order dependent.
 : edns test.
 
 **-E**
-: EDNS only.
+: EDNS only.  Only emit a report if there has been a valid EDNS response.
 
 **-f**
 : add full mode tests (includes edns).
@@ -90,6 +90,8 @@ and addresses.
 
 **-t**
 : type tests (serial) - test the server's handling of different query types.
+This disables any previous -c, -e (default), and -f switch.  To get TYPE test
+with EDNS, FULL or COMM tests you need to specify them after the -t switch.
 
 **-T**
 : print type list for type test (-t).
