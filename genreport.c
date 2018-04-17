@@ -207,139 +207,335 @@ static struct {
 	unsigned int z;			/* set z in request */
 	unsigned int opcode;		/* use opcode for request */
 	unsigned short type;		/* query type code */
+	const char *dig;		/* dig command */
 } opts[] = {
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa },
-	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa },
-	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa },
-	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa },
-	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0 },
-	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0 },
-	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666 },
-	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+	{ "dns",       EDNS,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec SOA <zone>"
+	},
+	{ "aa",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +aaflag SOA <zone>"
+	},
+	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +norec +aaflag SOA <zone>"
+	},
+	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +cd SOA <zone>"
+	},
+	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +raflag SOA <zone>"
+	},
+	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +rec SOA <zone>"
+	},
+	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +tcflag SOA <zone>"
+	},
+	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +zflag SOA <zone>"
+	},
+	{ "opcode",    FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, 0,
+	  "dig +noedns +noad +norec +header-only +opcode=15"
+	},
+	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0,
+	  "dig +noedns +header-only +opcode=15 +tcflag +rec +raflag +cd +ad +aaflag +zflag"
+	},
+	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666,
+	  "dig +noedns +noad +norec TYPE666 <zone>"
+	},
+	{ "tcp",       FULL,  0, "",    0, 0x0000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec +tcp SOA <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+	{ "edns",      EDNS,  0, "", 4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec SOA <zone>"
+	},
+	{ "edns1",     EDNS,  0, "", 4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec SOA <zone>"
+	},
+	{ "edns@512",  EDNS,  0, "",  512, 0x0000, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey,
+	  "dig +edns=0 +nocookie +noad +norec +dnssec +ignoretc +bufsize=512 DNSKEY <zone>"
+	},
 	{ "ednsopt",   EDNS,  4, "\x00\x64\x00\x00",	/* 100 */
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +ednsopt=100 SOA <zone>"
+	},
 	{ "edns1opt",  EDNS,  4, "\x00\x64\x00\x00",	/* 100 */
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec +ednsopt=100 SOA <zone>"
+	},
 	{ "do",        EDNS,  0, "",
-				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "edns1do",   FULL,  0, "", 4096, 0x8000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +dnssec SOA <zone>"
+	},
+	{ "edns1do",   FULL,  0, "", 4096, 0x8000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec +dnssec SOA <zone>"
+	},
+	{ "ednsflags", EDNS,  0, "", 4096, 0x0080, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +ednsflags=0x0080 SOA <zone>"
+	},
 	{ "optlist",   EDNS,  4 + 8 + 4 + 12,
 	  "\x00\x03\x00\x00" 		     /* NSID */
 	  "\x00\x08\x00\x04\x00\x01\x00\x00" /* ECS */
 	  "\x00\x09\x00\x00" 		     /* EXPIRE */
 	  "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08",	/* COOKIE */
-				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +noad +norec +nsid +subnet=0.0.0.0/0 +expire +cookie=0102030405060708 SOA <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
 	{ "ednsnsid", FULL,  4, "\x00\x03\x00\x00",	/* NSID */
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +nsid SOA <zone>"
+	},
 	{ "ednscookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
-				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +noad +norec +cookie=0102030405060708 SOA <zone>"
+	},
 	{ "ednsexpire", FULL, 4, "\x00\x09\x00\x00",	/* EXPIRE */
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +expire SOA <zone>"
+	},
 	{ "ednssubnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",	/* ECS */
-				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +subnet=0.0.0.0/0 SOA <zone>"
+	},
+
 	{ "edns1nsid", FULL,  4, "\x00\x03\x00\x00",	/* NSID */
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec +nsid SOA <zone>"
+	},
 	{ "edns1cookie", FULL, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
-				     4096, 0x0000, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +noad +norec +cookie=0102030405060708 SOA <zone>"
+	},
 	{ "edns1expire", FULL, 4, "\x00\x09\x00\x00",	/* EXPIRE */
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec +expire SOA <zone>"
+	},
 	{ "edns1subnet", FULL,  8, "\x00\x08\x00\x04\x00\x01\x00\x00",	/* ECS */
-				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
+				     4096, 0x0000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=1 +noednsneg +nocookie +noad +norec +subnet=0.0.0.0/0 SOA <zone>"
+	},
+	{ "ednstcp",   EDNS,  0, "",  512, 0x8000, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey,
+	  "dig +edns=0 +nocookie +noad +norec +dnssec +bufsize=512 +tcp DNSKEY <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
 	{ "bind11",    COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
-				     4096, 0x8000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
+				     4096, 0x8000, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +cookie=0102030405060708 +noad +norec +dnssec SOA <zone>"
+	},
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
-				     4096, 0x0000, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  0, ns_t_soa },
+				     4096, 0x0000, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +cookie=0102030405060708 +ad +rec SOA <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a },
-	{ "NS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns },
-	{ "MD",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md },
-	{ "MF",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf },
-	{ "CNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname },
-	{ "SOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa },
-	{ "MB",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb },
-	{ "MG",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg },
-	{ "MR",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr },
-	{ "NULL",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null },
-	{ "WKS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks },
-	{ "PTR",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr },
-	{ "HINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo },
-	{ "MINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo },
+	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a,
+	  "dig +noedns +noad +norec A <zone>"
+	},
+	{ "NS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ns,
+	  "dig +noedns +noad +norec NS <zone>"
+	},
+	{ "MD",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_md,
+	  "dig +noedns +noad +norec MD <zone>"
+	},
+	{ "MF",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mf,
+	  "dig +noedns +noad +norec MF <zone>"
+	},
+	{ "CNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cname,
+	  "dig +noedns +noad +norec CNAME <zone>"
+	},
+	{ "SOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec SOA <zone>"
+	},
+	{ "MB",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mb,
+	  "dig +noedns +noad +norec MB <zone>"
+	},
+	{ "MG",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mg,
+	  "dig +noedns +noad +norec MG <zone>"
+	},
+	{ "MR",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mr,
+	  "dig +noedns +noad +norec MR <zone>"
+	},
+	{ "NULL",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_null,
+	  "dig +noedns +noad +norec NULL <zone>"
+	},
+	{ "WKS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_wks,
+	  "dig +noedns +noad +norec WKS <zone>"
+	},
+	{ "PTR",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ptr,
+	  "dig +noedns +noad +norec PTR <zone>"
+	},
+	{ "HINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hinfo,
+	  "dig +noedns +noad +norec HINFO <zone>"
+	},
+	{ "MINFO",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_minfo,
+	  "dig +noedns +noad +norec MINFO <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "MX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx },
-	{ "TXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt },
-	{ "RP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp },
-	{ "AFSDB",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb },
-	{ "X25",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25 },
-	{ "ISDN",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn },
-	{ "RT",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt },
-	{ "NSAP",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap },
-	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr },
-	{ "SIG",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig },
-	{ "KEY",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key },
-	{ "PX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px },
-	{ "GPOS",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos },
-	{ "AAAA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa },
-	{ "LOC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc },
+	{ "MX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_mx,
+	  "dig +noedns +noad +norec MX <zone>"
+	},
+	{ "TXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_txt,
+	  "dig +noedns +noad +norec TXT <zone>"
+	},
+	{ "RP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rp,
+	  "dig +noedns +noad +norec RP <zone>"
+	},
+	{ "AFSDB",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_afsdb,
+	  "dig +noedns +noad +norec AFSDB <zone>"
+	},
+	{ "X25",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_x25,
+	  "dig +noedns +noad +norec X25 <zone>"
+	},
+	{ "ISDN",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_isdn,
+	  "dig +noedns +noad +norec ISDN <zone>"
+	},
+	{ "RT",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rt,
+	  "dig +noedns +noad +norec RT <zone>"
+	},
+	{ "NSAP",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap,
+	  "dig +noedns +noad +norec NSAP <zone>"
+	},
+	{ "NSAP-PTR",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsap_ptr,
+	  "dig +noedns +noad +norec NSAP-PTR <zone>"
+	},
+	{ "SIG",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sig,
+	  "dig +noedns +noad +norec SIG <zone>"
+	},
+	{ "KEY",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_key,
+	  "dig +noedns +noad +norec KEY <zone>"
+	},
+	{ "PX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_px,
+	  "dig +noedns +noad +norec PX <zone>"
+	},
+	{ "GPOS",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_gpos,
+	  "dig +noedns +noad +norec GPOS <zone>"
+	},
+	{ "AAAA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_aaaa,
+	  "dig +noedns +noad +norec AAAA <zone>"
+	},
+	{ "LOC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_loc,
+	  "dig +noedns +noad +norec LOC <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "NXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt },
-	{ "SRV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv },
-	{ "NAPTR",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr },
-	{ "KX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx },
-	{ "CERT",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert },
-	{ "A6",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6 },
-	{ "DNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname },
-	{ "APL",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl },
-	{ "DS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds },
-	{ "SSHFP",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp },
-	{ "IPSECKEY",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey },
-	{ "RRSIG",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig },
-	{ "NSEC",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec },
+	{ "NXT",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nxt,
+	  "dig +noedns +noad +norec NXT <zone>"
+	},
+	{ "SRV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_srv,
+	  "dig +noedns +noad +norec SRV <zone>"
+	},
+	{ "NAPTR",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_naptr,
+	  "dig +noedns +noad +norec NAPTR <zone>"
+	},
+	{ "KX",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_kx,
+	  "dig +noedns +noad +norec KX <zone>"
+	},
+	{ "CERT",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cert,
+	  "dig +noedns +noad +norec CERT <zone>"
+	},
+	{ "A6",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a6,
+	  "dig +noedns +noad +norec A6 <zone>"
+	},
+	{ "DNAME",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dname,
+	  "dig +noedns +noad +norec DNAME <zone>"
+	},
+	{ "APL",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_apl,
+	  "dig +noedns +noad +norec APL <zone>"
+	},
+	{ "DS",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ds,
+	  "dig +noedns +noad +norec DS <zone>"
+	},
+	{ "SSHFP",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_sshfp,
+	  "dig +noedns +noad +norec SSHFP <zone>"
+	},
+	{ "IPSECKEY",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_ipseckey,
+	  "dig +noedns +noad +norec IPSECKEY <zone>"
+	},
+	{ "RRSIG",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_rrsig,
+	  "dig +noedns +noad +norec RRSIG <zone>"
+	},
+	{ "NSEC",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec,
+	  "dig +noedns +noad +norec NSEC <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "DNSKEY",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey },
-	{ "DHCID",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid },
-	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3 },
-	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param },
-	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa },
-	{ "SMIMEA",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_smimea },
-	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip },
-	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds },
-	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey },
-	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey },
-	{ "SPF",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf },
-	{ "NID",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid },
-	{ "L32",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32 },
+	{ "DNSKEY",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dnskey,
+	  "dig +noedns +noad +norec DNSKEY <zone>"
+	},
+	{ "DHCID",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dhcid,
+	  "dig +noedns +noad +norec DHCID <zone>"
+	},
+	{ "NSEC3",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3,
+	  "dig +noedns +noad +norec NSEC3 <zone>"
+	},
+	{ "NSEC3PARAM",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nsec3param,
+	  "dig +noedns +noad +norec NSEC3PARAM <zone>"
+	},
+	{ "TLSA",      TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_tlsa,
+	  "dig +noedns +noad +norec TLSA <zone>"
+	},
+	{ "SMIMEA",    TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_smimea,
+	  "dig +noedns +noad +norec SMIMEA <zone>"
+	},
+	{ "HIP",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_hip,
+	  "dig +noedns +noad +norec HIP <zone>"
+	},
+	{ "CDS",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cds,
+	  "dig +noedns +noad +norec CDS <zone>"
+	},
+	{ "CDNSKEY",   TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_cdnskey,
+	  "dig +noedns +noad +norec CDNSKEY <zone>"
+	},
+	{ "OPENPGPKEY",TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_openpgpkey,
+	  "dig +noedns +noad +norec OPENPGPKEY <zone>"
+	},
+	{ "SPF",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_spf,
+	  "dig +noedns +noad +norec SPF <zone>"
+	},
+	{ "NID",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_nid,
+	  "dig +noedns +noad +norec NID <zone>"
+	},
+	{ "L32",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l32,
+	  "dig +noedns +noad +norec L32 <zone>"
+	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
-	{ "L64",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34 },
-	{ "LP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp },
-	{ "EUI48",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48 },
-	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64 },
-	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri },
-	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa },
-	{ "AVC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_avc },
-	{ "DOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_doa },
-	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv },
-	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000 }
+	{ "L64",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_l34,
+	  "dig +noedns +noad +norec L64 <zone>"
+	},
+	{ "LP",        TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_lp,
+	  "dig +noedns +noad +norec LP <zone>"
+	},
+	{ "EUI48",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui48,
+	  "dig +noedns +noad +norec EUI48 <zone>"
+	},
+	{ "EUI64",     TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_eui64,
+	  "dig +noedns +noad +norec EUI64 <zone>"
+	},
+	{ "URI",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_uri,
+	  "dig +noedns +noad +norec URI <zone>"
+	},
+	{ "CAA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_caa,
+	  "dig +noedns +noad +norec CAA <zone>"
+	},
+	{ "AVC",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_avc,
+	  "dig +noedns +noad +norec AVC <zone>"
+	},
+	{ "DOA",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_doa,
+	  "dig +noedns +noad +norec DOA <zone>"
+	},
+	{ "DLV",       TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_dlv,
+	  "dig +noedns +noad +norec DLV <zone>"
+	},
+	{ "TYPE1000",  TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 1000,
+	  "dig +noedns +noad +norec TYPE1000 <zone>"
+	}
 };
 
 /*
@@ -2682,7 +2878,7 @@ main(int argc, char **argv) {
 	char *end;
 	int on = 1;
 
-	while ((n = getopt(argc, argv, "46abBcdeEfi:I:Lm:opr:stT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:opr:stT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -2691,6 +2887,12 @@ main(int argc, char **argv) {
 		case 'B': badtag = 1; break;
 		case 'c': what |= COMM; break;
 		case 'd': debug = 1; break;
+		case 'D':
+			for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+				if (opts[i].dig != NULL)
+					printf("%-12s'%s'\n", opts[i].name, opts[i].dig);
+			}
+			exit (0);
 		case 'e': what |= EDNS; break;
 		case 'E': ednsonly = 1; break;
 		case 'f': what |= EDNS | FULL; break;
@@ -2747,6 +2949,7 @@ main(int argc, char **argv) {
 			printf("\t-B: only emit bad tests\n");
 			printf("\t-c: add common queries\n");
 			printf("\t-d: enable debugging\n");
+			printf("\t-D: list test and DiG command\n");
 			printf("\t-e: edns test\n");
 			printf("\t-E: EDNS only\n");
 			printf("\t-f: add full mode tests (incl edns)\n");

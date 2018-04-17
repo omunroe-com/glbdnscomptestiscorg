@@ -8,7 +8,7 @@ genreport - generate a report about DNS server compliance.
 
 # SYNOPSIS
 
-**genreport** **[-46abBcdeEfLopstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
+**genreport** **[-46abBcdDeEfLopstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
 
 # DESCRIPTION
 
@@ -52,6 +52,9 @@ Options are order dependent.
 
 **-d**
 : enable debugging.
+
+**-D**
+: list tests and matching dig command
 
 **-e**
 : edns test.
