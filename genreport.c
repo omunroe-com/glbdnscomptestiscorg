@@ -217,7 +217,7 @@ static struct {
 	  "dig +noedns +noad +norec +aaflag SOA <zone>"
 	},
 	{ "ad",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,  0, ns_t_soa,
-	  "dig +noedns +norec +aaflag SOA <zone>"
+	  "dig +noedns +ad +norec SOA <zone>"
 	},
 	{ "cd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa,
 	  "dig +noedns +noad +norec +cd SOA <zone>"
