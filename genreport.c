@@ -223,13 +223,13 @@ static struct {
 	  "dig +noedns +noad +norec +cd SOA <zone>"
 	},
 	{ "ra",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,  0, ns_t_soa,
-	  "dig +noedns +noad +norec +raflag SOA <zone>"
+	  "### dig +noedns +noad +norec +raflag SOA <zone> ###"
 	},
 	{ "rd",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,  0, ns_t_soa,
 	  "dig +noedns +noad +rec SOA <zone>"
 	},
 	{ "tc",        FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
-	  "dig +noedns +noad +norec +tcflag SOA <zone>"
+	  "### dig +noedns +noad +norec +tcflag SOA <zone> ###"
 	},
 	{ "zflag",     FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  0, ns_t_soa,
 	  "dig +noedns +noad +norec +zflag SOA <zone>"
@@ -238,7 +238,7 @@ static struct {
 	  "dig +noedns +noad +norec +header-only +opcode=15"
 	},
 	{ "opcodeflg", FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 15, 0,
-	  "dig +noedns +header-only +opcode=15 +tcflag +rec +raflag +cd +ad +aaflag +zflag"
+	  "### dig +noedns +header-only +opcode=15 +tcflag +rec +raflag +cd +ad +aaflag +zflag ###"
 	},
 	{ "type666",   FULL,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 666,
 	  "dig +noedns +noad +norec TYPE666 <zone>"
