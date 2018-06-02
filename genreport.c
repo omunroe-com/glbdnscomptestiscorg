@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <unistd.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -103,6 +104,7 @@ static int ednsonly  = 0;
 static int debug = 0;
 static int inorder = 0;
 static int serial = 0;
+static int printnsid = 0;
 static long long sent;
 
 
@@ -572,6 +574,8 @@ struct summary {
 	int allrefused;			/* all answers are current ok */
 	int allservfail;		/* all answers are current ok */
 	struct summary *xlink;		/* cross link of recursive A/AAAA */
+	int nsidlen;
+	char nsid[100];			/* nsid if found */
 	char results[sizeof(opts)/sizeof(opts[0])][100];
 };
 
@@ -859,6 +863,17 @@ printandfree(struct summary *summary) {
 			}
 			printf(" %s=%s", opts[i].name, summary->results[i]);
 		}
+fprintf(stderr, "printnsid=%d summary->nsidlen=%u\n", printnsid, summary->nsidlen);
+	if (printnsid && summary->nsidlen != 0) {
+		printf(" (");
+		for (i = 0; i < summary->nsidlen; i++) {
+			if (isprint(summary->nsid[i] & 0xff))
+				putchar(summary->nsid[i]);
+			else
+				putchar('.');
+		}
+		printf(")");
+	}
 	printf("\n");
 	freesummary(summary);
 }
@@ -1591,6 +1606,16 @@ lookupns(char *zone) {
 	dolookup(item, ns_t_ns);
 }
 
+static void
+copy_nsid(struct summary *summary, unsigned char *options, size_t optlen) {
+	size_t i;
+
+	for (i= 0; i < optlen && i < sizeof(summary->nsid); i++) {
+		summary->nsid[i] = options[i];
+	}
+	summary->nsidlen = i;
+}
+
 /*
  * Process a recieved response.
  */
@@ -1863,7 +1888,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	}
 
 	if (opts[item->test].opcode != 0 && adcount != 0) {
-		addtag(item, "non-empty-authority-section"), ok = 0;
+		addtag(item, "non-empty-additional-section"), ok = 0;
 	} else {
 		for (i = 0; i < adcount; i++) {
 			n = dn_expand(buf, eom, cp, name, sizeof(name));
@@ -1894,8 +1919,13 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 					options += 2;
 					optlen = ns_get16(options);
 					options += 2;
-					if (code == 3 && optlen > 0)
+					if ((cp + rdlen) - options < optlen)
+						goto err;
+					if (code == 3 && optlen > 0) {
 						seennsid = 1;
+						copy_nsid(item->summary,
+							  options, optlen);
+					}
 					if (code == 8)
 						seenecs = 1;
 					if (code == 9 && optlen == 4)
@@ -2878,7 +2908,7 @@ main(int argc, char **argv) {
 	char *end;
 	int on = 1;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:opr:stT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopr:stT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -2927,6 +2957,7 @@ main(int argc, char **argv) {
 			  if (maxoutstanding > FD_SETSIZE - 10)
 				maxoutstanding = FD_SETSIZE - 10;
 			  break;
+		case 'n': printnsid = 1; break;
 		case 'o': inorder = 1; break;
 		case 'p': serial = 0; break;
 		case 'r': addserver(optarg); break;
@@ -2940,8 +2971,9 @@ main(int argc, char **argv) {
 			}
 			exit (0);
 		default:
-			printf("usage: genreport [-46abBcdeEfLopstT] [-i test] "
-			       "[-I test] [-m maxoutstanding] [-r server]\n");
+			printf("usage: genreport [-46abBcdeEfLnopstT] "
+			       "[-i test] [-I test] [-m maxoutstanding] "
+			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
 			printf("\t-6: IPv6 servers only\n");
 			printf("\t-a: only emit all ok\n");
@@ -2957,6 +2989,7 @@ main(int argc, char **argv) {
 			printf("\t-I: remove individual test\n");
 			printf("\t-L: list tests and their grouping\n");
 			printf("\t-m: set maxoutstanding\n");
+			printf("\t-n: printnsid\n");
 			printf("\t-o: inorder output\n");
 			printf("\t-p: parallelize tests\n");
 			printf("\t-r: use specified recursive server\n");
