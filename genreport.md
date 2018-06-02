@@ -77,6 +77,9 @@ Options are order dependent.
 **-m maxoutstanding**
 : set the maximum number of outstanding DNS queries in progress.
 
+**-n**
+: report the NSID value if found.
+
 **-o**
 : restore the output order rather than printing each server as the
 tests for that server complete.
