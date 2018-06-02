@@ -2039,7 +2039,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	if (seenecho)
 		addtag(item, "echoed"), ok = 0;
 	if (seenopt && (opts[item->test].flags & 0x8000) != 0 &&
-		       (ednsttl & 0x8000) == 0)
+		       (ednsttl & 0x8000) == 0 && seenrrsig)
 		addtag(item, "nodo"), ok = 0;
 
 	/* AA is only defined for QUERY */
