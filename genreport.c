@@ -863,7 +863,6 @@ printandfree(struct summary *summary) {
 			}
 			printf(" %s=%s", opts[i].name, summary->results[i]);
 		}
-fprintf(stderr, "printnsid=%d summary->nsidlen=%u\n", printnsid, summary->nsidlen);
 	if (printnsid && summary->nsidlen != 0) {
 		printf(" (");
 		for (i = 0; i < summary->nsidlen; i++) {
