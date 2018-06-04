@@ -557,6 +557,7 @@ struct summary {
 	int deferred;			/* was the printing deferred */
 	int done;			/* we are done */
 	int type;			/* recursive query lookup type */
+	int nodata;			/* recursive query got nodata */
 	int nodataa;			/* recursive query got nodata */
 	int nodataaaaa;			/* recursive query got nodata */
 	int nxdomain;			/* recursive query got nxdomain */
@@ -774,6 +775,12 @@ printandfree(struct summary *summary) {
 	    summary->failedaaaa && summary->nxdomaina) {
 		printf("%s. %s:", summary->zone, summary->ns);
 		printf(" A nxdomain\n");
+		freesummary(summary);
+		return;
+	}
+	if (summary->type == ns_t_ns && summary->nodata) {
+		printf("%s.:", summary->zone);
+		printf(" no NS records found\n");
 		freesummary(summary);
 		return;
 	}
@@ -1732,8 +1739,10 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 			}
 			if (item->type == ns_t_ns && type == ns_t_ns &&
 			    strcasecmp(item->summary->zone, name) == 0 &&
-			    rcode == ns_r_noerror && ancount == 0)
+			    rcode == ns_r_noerror && ancount == 0) {
+				item->summary->nodata = 1;
 				item->summary->done = 1;
+			}
 
 			/*
 			 * NXDOMAIN?
