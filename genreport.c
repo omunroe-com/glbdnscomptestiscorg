@@ -565,6 +565,7 @@ struct summary {
 	int nxdomainaaaa;		/* recursive query got nxdomain */
 	int faileda;
 	int failedaaaa;
+	int cname;			/* NS is CNAME */
 	int cnamea;			/* Nameserver is CNAME */
 	int cnameaaaa;			/* Nameserver is CNAME */
 	int seenrrsig;			/* a rrsig was seen in "do" test */
@@ -743,6 +744,12 @@ printandfree(struct summary *summary) {
 	    (summary->cnamea || summary->cnameaaaa)) {
 		printf("%s. %s: nameserver is a CNAME\n",
 		       summary->zone, summary->ns);
+		freesummary(summary);
+		return;
+	}
+
+	if ((summary->type == ns_t_ns) && summary->cname) {
+		printf("%s.: zone is a CNAME\n", summary->zone);
 		freesummary(summary);
 		return;
 	}
@@ -1803,6 +1810,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 			/* Don't follow CNAME for NS lookups. */
 			if (item->type == ns_t_ns && type == ns_t_cname &&
 			    strcasecmp(item->summary->zone, name) == 0) {
+				item->summary->cname = 1;
 				item->summary->done = 1;
 			}
 			if (item->type == ns_t_a && type == ns_t_a &&
