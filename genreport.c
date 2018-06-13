@@ -271,6 +271,10 @@ static struct {
 				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
 	  "dig +edns=0 +nocookie +noad +norec +dnssec SOA <zone>"
 	},
+	{ "docd",      FULL,  0, "",
+				     4096, 0x8000, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,  0, ns_t_soa,
+	  "dig +edns=0 +nocookie +noad +norec +dnssec SOA <zone>"
+	},
 	{ "edns1do",   FULL,  0, "", 4096, 0x8000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
 	  "dig +edns=1 +noednsneg +nocookie +noad +norec +dnssec SOA <zone>"
 	},
@@ -2058,6 +2062,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	if (seenopt && (opts[item->test].flags & 0x8000) != 0 &&
 		       (ednsttl & 0x8000) == 0 && seenrrsig)
 		addtag(item, "nodo"), ok = 0;
+	if (seenopt && (opts[item->test].flags & 0x8000) != 0 &&
+	    opts[item->test].cd && (ednsttl & 0x8000) != 0 && !cd && seenrrsig)
+		addtag(item, "nocd"), ok = 0;
 
 	/* AA is only defined for QUERY */
 	if (!aa && opts[item->test].version == 0 &&

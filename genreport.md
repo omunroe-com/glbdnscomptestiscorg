@@ -230,6 +230,9 @@ if all subtests to a particular server succeed.
 **do EDNS**
 : Send a EDNS version 0 query with type code SOA and DO set to 1.
 
+**docd FULL**
+: Send a FULL version 0 query with type code SOA, DO set to 1 and CD set to 1.
+
 **edns1do FULL**
 : Send a EDNS version 1 query with type code SOA and DO set to 1.
 
