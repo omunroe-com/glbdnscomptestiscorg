@@ -10,6 +10,8 @@
 
 #include <config.h>
 
+#define __FAVOR_BSD 1
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
