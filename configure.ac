@@ -5,7 +5,6 @@ AC_PROG_CC_C99
 AC_CONFIG_SRCDIR([genreport.c])
 AC_CONFIG_HEADER([config.h])
 AC_CONFIG_FILES([Makefile])
-AC_USE_SYSTEM_EXTENSIONS
 AC_CANONICAL_HOST
 AC_SEARCH_LIBS([res_mkquery],[resolv bind])
 AC_SEARCH_LIBS([res_9_mkquery],[resolv bind])
