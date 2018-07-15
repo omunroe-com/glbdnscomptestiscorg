@@ -1,22 +1,37 @@
-image: "debian:sid"
-
 variables:
   DEBIAN_FRONTEND: noninteractive
-  LC_ALL: C.UTF-8
   DOCKER_DRIVER: overlay2
+  CI_REGISTRY_IMAGE: oerdnj/bind9
 
 stages:
   - build
   - test
 
-build:
+.centos-centos7-amd64: &centos_centos7_amd64_image
+  image: "$CI_REGISTRY_IMAGE:centos-centos7-amd64"
+  variables:
+    LC_ALL: en_US.UTF-8
+  tags:
+    - linux
+    - docker
+    - amd64
+
+.debian-sid-amd64: &debian_sid_amd64_image
+  image: "$CI_REGISTRY_IMAGE:debian-sid-amd64"
+  variables:
+    LC_ALL: C.UTF-8
+  image: "$CI_REGISTRY_IMAGE:debian-sid-amd64"
+  tags:
+    - linux
+    - docker
+    - amd64
+
+.build: &build_job
   stage: build
   tags:
     - linux
     - docker
   before_script:
-    - apt-get update
-    - apt-get -y install autotools-dev build-essential autoconf automake libtool
     - autoreconf -fi
   script:
     - ./configure
@@ -27,12 +42,42 @@ build:
       - config.log
       - genreport
 
-test:
+.test: &test_job
   stage: test
   tags:
     - linux
     - docker
   script:
     - echo . f.root-servers.net | ./genreport
+
+build:centos:centos7:amd64:
+  variables:
+    CC: gcc
+    CFLAGS: "-Wall -Wextra -O2 -g -D_BSD_SOURCE"
+  before_script:
+    - autoreconf -fi
+  <<: *centos_centos7_amd64_image
+  <<: *build_job
+
+build:debian:sid:amd64:
+  variables:
+    CC: gcc
+    CFLAGS: "-Wall -Wextra -O2 -g"
+  before_script:
+    - apt-get update
+    - apt-get -y install autotools-dev build-essential autoconf automake libtool
+    - autoreconf -fi
+  <<: *debian_sid_amd64_image
+  <<: *build_job
+
+test:centos:centos7:amd64:
+  <<: *centos_centos7_amd64_image
+  <<: *test_job
   dependencies:
-    - build
+    - build:centos:centos7:amd64
+
+test:debian:sid:amd64:
+  <<: *debian_sid_amd64_image
+  <<: *test_job
+  dependencies:
+    - build:debian:sid:amd64

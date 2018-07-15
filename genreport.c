@@ -8,9 +8,11 @@
 
 #define FD_SETSIZE 1600
 
-#include <config.h>
+#ifndef _BSD_SOURCE
+#define _BSD_SOURCE 1
+#endif
 
-#define __FAVOR_BSD 1
+#include <config.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -559,7 +561,7 @@ struct summary {
 	char ns[1024];			/* the server's name */
 	struct sockaddr_storage storage;/* server we are talking to */
 	int tests;			/* number of outstanding tests */
-	int last;			/* last test sent */
+	unsigned int last;		/* last test sent */
 	int deferred;			/* was the printing deferred */
 	int done;			/* we are done */
 	int type;			/* recursive query lookup type */
@@ -582,7 +584,7 @@ struct summary {
 	int allrefused;			/* all answers are current ok */
 	int allservfail;		/* all answers are current ok */
 	struct summary *xlink;		/* cross link of recursive A/AAAA */
-	int nsidlen;
+	unsigned int nsidlen;
 	char nsid[100];			/* nsid if found */
 	char results[sizeof(opts)/sizeof(opts[0])][100];
 };
@@ -883,7 +885,7 @@ printandfree(struct summary *summary) {
 			}
 			printf(" %s=%s", opts[i].name, summary->results[i]);
 		}
-	if (printnsid && summary->nsidlen != 0) {
+	if (printnsid && summary->nsidlen != 0U) {
 		printf(" (");
 		for (i = 0; i < summary->nsidlen; i++) {
 			if (isprint(summary->nsid[i] & 0xff))
@@ -1109,7 +1111,8 @@ static void
 dotest(struct workitem *item) {
 	unsigned char *cp;
 	unsigned int ttl;
-	int n, fd, id, tries = 0, opcode;
+	int n, fd, id, tries = 0;
+	unsigned int opcode;
 	socklen_t ss_len;
 	
 
@@ -1644,7 +1647,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	unsigned int i, id, qr, aa, tc, rd, ra, z, ad, cd;
 	unsigned int qrcount, ancount, aucount, adcount;
 	unsigned int opcode, rcode;
-	unsigned int type, ednssize = 0, class, ednsttl = 0, ttl, rdlen;
+	unsigned int ednssize = 0, class, ednsttl = 0, ttl, rdlen;
+	unsigned short type;
 	unsigned char *cp, *eom;
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
@@ -1846,7 +1850,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 			{
 				struct summary *summarya, *summaryaaaa;
 				n = dn_expand(buf, eom, cp, ns, sizeof(ns));
-				if (n != rdlen)
+				if (n < 0 || (size_t)n != rdlen)
 					goto err;
 				item->summary->done = 1;
 				/*
@@ -1981,16 +1985,18 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 			testname = opts[item->test].name;
 		else
 			testname = "";
-		printf("id=%-5u %-9s opcode=%u rcode=%u aa=%u tc=%u rd=%u "
+		printf("id=%-5u %-9s opcode=%u rcode=%u qr=%u aa=%u tc=%u rd=%u "
 		       "ra=%u z=%u ad=%u cd=%u qrcount=%u ancount=%u "
 		       "aucount=%u adcount=%u\n"
 		       "\tseensoa=%u seenrrsig=%u seenopt=%u "
-		       "seennsid=%u seenecs=%u seenexpire=%u seencookie=%u\n",
+		       "seennsid=%u seenecs=%u seenexpire=%u seencookie=%u\n"
+		       "\tednsudpsize=%u\n",
 		       id, testname, opcode, rcode,
-		       aa, tc, rd, ra, z, ad, cd,
+		       qr, aa, tc, rd, ra, z, ad, cd,
 		       qrcount, ancount, aucount, adcount,
 		       seensoa, seenrrsig, seenopt,
-		       seennsid, seenecs, seenexpire, seencookie);
+		       seennsid, seenecs, seenexpire, seencookie,
+		       ednssize);
 	}
 
 	if (item->summary->type) {
@@ -2368,6 +2374,8 @@ readstdin(int fd) {
 	char address[1204];
 	int n;
 
+	fd = fd;	/* unused */
+
 	/*
 	 * Too much outstanding work then wait to be called again.
 	 */
@@ -2447,9 +2455,9 @@ icmp4read(int fd) {
 		hlen = icmp->icmp_ip.ip_hl << 2;
 		offset = offsetof(struct icmp, icmp_ip) + hlen;
 		if (icmp->icmp_ip.ip_p == IPPROTO_UDP &&
-		    n >= offset + sizeof(struct udphdr)) {
+		    (size_t)n >= offset + sizeof(struct udphdr)) {
 			udphdr = (struct udphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct udphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct udphdr) + 2) {
 				msgdata = offset + sizeof(struct udphdr);
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
@@ -2463,9 +2471,9 @@ icmp4read(int fd) {
 			}
 		}
 		if (icmp->icmp_ip.ip_p == IPPROTO_TCP &&
-		    n >= offset + sizeof(struct tcphdr)) {
+		    (size_t)n >= offset + sizeof(struct tcphdr)) {
 			tcphdr = (struct tcphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct tcphdr) + 4) {
+			if ((size_t)n >= offset + sizeof(struct tcphdr) + 4) {
 				msgdata = offset + sizeof(struct tcphdr);
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
@@ -2534,9 +2542,9 @@ icmp4read(int fd) {
 		hlen = icmp->icmp_ip.ip_hl << 2;
 		offset = offsetof(struct icmp, icmp_ip) + hlen;
 		if (icmp->icmp_ip.ip_p == IPPROTO_UDP &&
-		    n >= offset + sizeof(struct udphdr)) {
+		    (size_t)n >= offset + sizeof(struct udphdr)) {
 			udphdr = (struct udphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct udphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct udphdr) + 2) {
 				msgdata = offset + sizeof(struct udphdr);
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
@@ -2550,9 +2558,9 @@ icmp4read(int fd) {
 			}
 		}
 		if (icmp->icmp_ip.ip_p == IPPROTO_TCP &&
-		    n >= offset + sizeof(struct tcphdr)) {
+		    (size_t)n >= offset + sizeof(struct tcphdr)) {
 			tcphdr = (struct tcphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct tcphdr) + 4) {
+			if ((size_t)n >= offset + sizeof(struct tcphdr) + 4) {
 				msgdata = offset + sizeof(struct tcphdr);
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
@@ -2634,9 +2642,9 @@ icmp6read(int fd) {
 			offset += 8;
 		}
 		if (nxt == IPPROTO_UDP &&
-		    n >= offset + sizeof(struct udphdr)) {
+		    (size_t)n >= offset + sizeof(struct udphdr)) {
 			udphdr = (struct udphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct udphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct udphdr) + 2) {
 				msgdata = offset + sizeof(struct udphdr);
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
@@ -2669,9 +2677,9 @@ icmp6read(int fd) {
 			offset += 8;
 		}
 		if (nxt == IPPROTO_UDP &&
-		    n >= offset + sizeof(struct udphdr)) {
+		    (size_t)n >= offset + sizeof(struct udphdr)) {
 			udphdr = (struct udphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct udphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct udphdr) + 2) {
 				msgdata = offset + sizeof(struct udphdr);
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
@@ -2685,9 +2693,9 @@ icmp6read(int fd) {
 			}
 		}
 		if (nxt == IPPROTO_TCP &&
-		    n >= offset + sizeof(struct tcphdr)) {
+		    (size_t)n >= offset + sizeof(struct tcphdr)) {
 			tcphdr = (struct tcphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct tcphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct tcphdr) + 2) {
 				msgdata = offset + sizeof(struct tcphdr);
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
@@ -2734,9 +2742,9 @@ icmp6read(int fd) {
 			offset += 8;
 		}
 		if (nxt == IPPROTO_UDP &&
-		    n >= offset + sizeof(struct udphdr)) {
+		    (size_t)n >= offset + sizeof(struct udphdr)) {
 			udphdr = (struct udphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct udphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct udphdr) + 2) {
 				msgdata = offset + sizeof(struct udphdr);
 				id = (buf[msgdata] << 8) + buf[msgdata + 1];
 				memset(&storage, 0, sizeof(storage));
@@ -2750,9 +2758,9 @@ icmp6read(int fd) {
 			}
 		}
 		if (nxt == IPPROTO_TCP &&
-		    n >= offset + sizeof(struct tcphdr)) {
+		    (size_t)n >= offset + sizeof(struct tcphdr)) {
 			tcphdr = (struct tcphdr *)&buf[offset];
-			if (n >= offset + sizeof(struct tcphdr) + 2) {
+			if ((size_t)n >= offset + sizeof(struct tcphdr) + 2) {
 				msgdata = offset + sizeof(struct tcphdr);
 				id = (buf[msgdata + 2] << 8) + buf[msgdata + 3];
 				memset(&storage, 0, sizeof(storage));
@@ -2917,6 +2925,7 @@ static int stats;
 
 static void
 info(int sig) {
+	sig = sig;	/* unused */
 	stats = 1;
 }
 
