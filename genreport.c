@@ -185,6 +185,7 @@ int ident = 0;
 /*
  * Test groupings
  */
+#define NONE 0x00
 #define EDNS 0x01
 #define COMM 0x02
 #define FULL 0x04
@@ -340,6 +341,10 @@ static struct {
 	{ "dig11",     COMM, 12, "\x00\x0a\x00\x08\x01\x02\x03\x04\x05\x06\x07\x08", /* COOKIE */
 				     4096, 0x0000, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  0, ns_t_soa,
 	  "dig +edns=0 +cookie=0102030405060708 +ad +rec SOA <zone>"
+	},
+
+	{ "dnswkk",     NONE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_soa,
+	  "dig +noedns +noad +norec -y hmac-sha256:.:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= SOA <zone>"
 	},
 
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
@@ -1158,6 +1163,29 @@ dotest(struct workitem *item) {
 		n = 12;
 	}
 
+	if (n > 0) {
+		/*
+		 * Adjust id if it clashes with a outstanding request.
+		 */
+		id = item->buf[0] << 8 | item->buf[1];
+
+		while (!checkid(&item->summary->storage, id) &&
+		       tries++ < 0xffff)
+			id = (id + 1) & 0xffff;
+
+		if (tries == 0xffff) {
+			addtag(item, "skipped");
+			item->summary->allok = 0;
+			item->summary->seenfailure = 1;
+			freeitem(item);
+			return;
+		}
+
+		item->buf[0] = id >> 8;
+		item->buf[1] = id & 0xff;
+		item->id = id;
+	}
+
 	/*
 	 * Set DNS flags as specified by test.
 	 */
@@ -1210,27 +1238,50 @@ dotest(struct workitem *item) {
 		n = cp - item->buf;			/* total length */
 	}
 
+	/*
+	 * Add TSIG record with invalid MAC if required by test.  
+	 */
+	if (n > 0 && strcmp(opts[item->test].name, "dnswkk") == 0) {
+		time_t now;
+		unsigned char buf[32] = { 0 };
+		unsigned char *rdlen;
+#define	ALGNAME "\013hmac-sha256"
+
+		cp = item->buf + n;
+		*cp++ = 0;				/* name "." */
+		ns_put16(ns_t_tsig, cp);		/* type */
+		cp += 2;
+		ns_put16(ns_t_any, cp);			/* class */
+		cp += 2;
+		ns_put32(0, cp);			/* ttl */
+		cp += 4;
+		rdlen = cp;				/* save rdlen ptr */
+		cp += 2;
+		memcpy(cp, ALGNAME, sizeof(ALGNAME));
+		cp += sizeof(ALGNAME);
+		ns_put16(0, cp);			/* high time */
+		cp += 2;
+		time(&now);
+		ns_put32((unsigned int)now, cp);	/* low time */
+		cp += 4;
+		ns_put16(300, cp);			/* fudge */
+		cp += 2;
+		ns_put16(sizeof(buf), cp);		/* mac size */
+		cp += 2;
+		memcpy(cp, buf, sizeof(buf));		/* mac */
+		cp += sizeof(buf);
+		memcpy(cp, item->buf, id);		/* id */
+		cp += 2;
+		ns_put16(0, cp);			/* error */
+		cp += 2;
+		ns_put16(0, cp);			/* other len */
+		cp += 2;
+		ns_put16(cp - rdlen - 2, rdlen);	/* rdlen */
+		item->buf[11] += 1;			/* adcount */
+		n = cp - item->buf;			/* total length */
+	}
+
 	if (n > 0) {
-		/*
-		 * Adjust id if it clashes with a outstanding request.
-		 */
-		id = item->buf[0] << 8 | item->buf[1];
-
-		while (!checkid(&item->summary->storage, id) &&
-		       tries++ < 0xffff)
-			id = (id + 1) & 0xffff;
-
-		if (tries == 0xffff) {
-			addtag(item, "skipped");
-			item->summary->allok = 0;
-			item->summary->seenfailure = 1;
-			freeitem(item);
-			return;
-		}
-
-		item->buf[0] = id >> 8;
-		item->buf[1] = id & 0xff;
-		item->id = id;
 		item->buflen = n;
 
 		if (opts[item->test].tcp) {
@@ -1393,6 +1444,20 @@ rcodetext(int code) {
 	case ns_r_notzone: return("notzone");
 	case ns_r_badvers: return("badvers");
 	case ns_r_badcookie: return("badcookie");
+	default:
+		snprintf(buf, sizeof(buf), "rcode%u", code);
+		return (buf);
+	}
+}
+
+static char *
+tsigerrortext(int code) {
+	static char buf[64];
+
+	switch(code) {
+	case ns_r_badsig: return("badsig");
+	case ns_r_badkey: return("badkey");
+	case ns_r_badtime: return("badtime");
 	default:
 		snprintf(buf, sizeof(buf), "rcode%u", code);
 		return (buf);
@@ -1646,13 +1711,13 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	char name[1024], ns[1024];
 	unsigned int i, id, qr, aa, tc, rd, ra, z, ad, cd;
 	unsigned int qrcount, ancount, aucount, adcount;
-	unsigned int opcode, rcode;
+	unsigned int opcode, rcode, tsigerror;
 	unsigned int ednssize = 0, class, ednsttl = 0, ttl, rdlen;
 	unsigned short type;
 	unsigned char *cp, *eom;
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
-	int seenecho = 0;
+	int seenecho = 0, seentsig = 0;
 	int n;
 	char addrbuf[64];
 	int ednsvers = 0;
@@ -1968,6 +2033,31 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 					goto err;
 			} else if (type == ns_t_opt)
 				goto err;
+			if (type == ns_t_tsig && !seentsig) {
+				unsigned char *eor = cp + rdlen;
+				unsigned char *rd = cp;
+				unsigned int maclen;
+				
+				n = dn_expand(buf, rd + rdlen, rd, name,
+					      sizeof(name));
+				if (n < 0 || rdlen < n)
+					goto err;
+				rd += n;
+				if ((eor - rd) < 10)
+					goto err;
+				rd += 8;	/* time, fudge */
+				maclen = ns_get16(rd);
+				rd += 2;
+				if ((eor - rd) < maclen)
+					goto err;
+				rd += maclen;	/* skip mac */
+				if ((eor - rd) != 6)
+					goto err;
+				rd += 2;
+				tsigerror = ns_get16(rd);
+				seentsig = 1;
+			} else if (type == ns_t_tsig)
+				goto err;
 			cp += rdlen;
 			if (debug)
 				printf("AD: %s./%u/%u/%u/%u\n",
@@ -2033,6 +2123,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		/* Expect NOTIMP */
 		if (opts[item->test].opcode != 0 && rcode != 4)
 			addtag(item, rcodetext(rcode)), ok = 0;
+		if (seentsig && rcode == ns_r_notauth && tsigerror != 0)
+			addtag(item, tsigerrortext(tsigerror)), ok = 0;
 	}
 
 	/* Expect BADVERS to EDNS Version != 0 */
