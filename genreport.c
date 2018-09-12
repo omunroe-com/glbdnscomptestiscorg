@@ -2123,9 +2123,15 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		/* Expect NOTIMP */
 		if (opts[item->test].opcode != 0 && rcode != 4)
 			addtag(item, rcodetext(rcode)), ok = 0;
-		if (seentsig && rcode == ns_r_notauth && tsigerror != 0)
-			addtag(item, tsigerrortext(tsigerror)), ok = 0;
 	}
+
+	/* Report the TSIG error if any */
+	if (seentsig && rcode == ns_r_notauth && tsigerror != 0)
+		addtag(item, tsigerrortext(tsigerror)), ok = 0;
+
+	/* Report if we didn't get a TSIG when we were expecting it */
+	if (strcmp(opts[item->test].name, "dnswkk") == 0 && !seentsig)
+		addtag(item, "notsig"), ok = 0;
 
 	/* Expect BADVERS to EDNS Version != 0 */
 	if (opts[item->test].version != 0)
