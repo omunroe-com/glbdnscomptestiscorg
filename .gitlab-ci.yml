@@ -65,7 +65,7 @@ build:debian:sid:amd64:
     CFLAGS: "-Wall -Wextra -O2 -g"
   before_script:
     - apt-get update
-    - apt-get -y install autotools-dev build-essential autoconf automake libtool
+    - apt-get -y install autotools-dev build-essential autoconf automake libtool autoconf-archive 
     - autoreconf -fi
   <<: *debian_sid_amd64_image
   <<: *build_job
