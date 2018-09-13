@@ -43,6 +43,8 @@
 #include <resolv.h>
 #include <signal.h>
 
+#include <openssl/hmac.h>
+
 #ifndef FD_COPY
 #define FD_COPY(x, y) memmove(y, x, sizeof(*x))
 #endif
@@ -619,6 +621,7 @@ struct workitem {
 	int read;			/* how much has been read so far */
 	unsigned char buf[512];		/* the question we sent */
 	unsigned char tcpbuf[0x10000];	/* where to accumulate the tcp response */
+	unsigned char mac[32];		/* tsig hmac-sha256 mac */
 	struct summary *summary;	/* where this test is summaried */
 };
 
@@ -1243,20 +1246,39 @@ dotest(struct workitem *item) {
 	 */
 	if (n > 0 && strcmp(opts[item->test].name, "dnswkk") == 0) {
 		time_t now;
-		unsigned char buf[32] = { 0 };
-		unsigned char *rdlen;
-#define	ALGNAME "\013hmac-sha256"
+		unsigned char key[32] = { 0 };	/* all zeros */
+		unsigned char *rdlen;	/* rdata len pointer */
+		unsigned char *dp;	/* digest start pointer */
+		unsigned char *mp;	/* pointer to MAC */
+		HMAC_CTX *hmctx;
+
+#define	ALGNAME "\013hmac-sha256"	/* lower case */
+
+		hmctx = HMAC_CTX_new();
+		if (hmctx == NULL)
+			goto error;
+		if (!HMAC_Init_ex(hmctx, key, sizeof(key), EVP_sha256(), NULL))
+			goto error;
+		if (!HMAC_Update(hmctx, item->buf, n))
+			goto error;
 
 		cp = item->buf + n;
+		dp = cp;
 		*cp++ = 0;				/* name "." */
+		if (!HMAC_Update(hmctx, dp, cp - dp))	/* name */
+			goto error;
 		ns_put16(ns_t_tsig, cp);		/* type */
 		cp += 2;
+		dp = cp;
 		ns_put16(ns_t_any, cp);			/* class */
 		cp += 2;
 		ns_put32(0, cp);			/* ttl */
 		cp += 4;
+		if (!HMAC_Update(hmctx, dp, cp - dp))	/* class ttl */
+			goto error;
 		rdlen = cp;				/* save rdlen ptr */
 		cp += 2;
+		dp = cp;
 		memcpy(cp, ALGNAME, sizeof(ALGNAME));
 		cp += sizeof(ALGNAME);
 		ns_put16(0, cp);			/* high time */
@@ -1266,19 +1288,31 @@ dotest(struct workitem *item) {
 		cp += 4;
 		ns_put16(300, cp);			/* fudge */
 		cp += 2;
-		ns_put16(sizeof(buf), cp);		/* mac size */
+		if (!HMAC_Update(hmctx, dp, cp - dp))	/* alg, time, fudge*/
+			goto error;
+		ns_put16(sizeof(item->mac), cp);	/* mac size */
 		cp += 2;
-		memcpy(cp, buf, sizeof(buf));		/* mac */
-		cp += sizeof(buf);
+		mp = cp;
+		cp += sizeof(item->mac);
 		memcpy(cp, item->buf, id);		/* id */
 		cp += 2;
+		dp = cp;
 		ns_put16(0, cp);			/* error */
 		cp += 2;
 		ns_put16(0, cp);			/* other len */
 		cp += 2;
+		/* no other data */
+		if (!HMAC_Update(hmctx, dp, cp - dp))	/* error, other len */
+			goto error;
+		if (!HMAC_Final(hmctx, item->mac, NULL))
+			goto error;
+
+		memcpy(mp, item->mac, sizeof(item->mac)); /* mac */
+
 		ns_put16(cp - rdlen - 2, rdlen);	/* rdlen */
 		item->buf[11] += 1;			/* adcount */
 		n = cp - item->buf;			/* total length */
+		HMAC_CTX_free(hmctx);
 	}
 
 	if (n > 0) {
@@ -1321,6 +1355,7 @@ dotest(struct workitem *item) {
 		APPEND(work, item, link);
 		APPEND(ids[item->id], item, idlink);
 	} else {
+ error:
 		addtag(item, "failed");
 		item->summary->allok = 0;
 		item->summary->seenfailure = 1;
