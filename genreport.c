@@ -184,6 +184,9 @@ int ident = 0;
 #define HEAD(list) (list).head
 #define TAIL(list) (list).tail
 
+#define	HMACSHA256W "\013hmac-sha256"	/* cannonical form */
+#define	HMACSHA256  "hmac-sha256"	/* presentation form */
+
 /*
  * Test groupings
  */
@@ -1122,7 +1125,7 @@ dotest(struct workitem *item) {
 	int n, fd, id, tries = 0;
 	unsigned int opcode;
 	socklen_t ss_len;
-	
+	HMAC_CTX *hmctx = NULL;
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
@@ -1242,7 +1245,7 @@ dotest(struct workitem *item) {
 	}
 
 	/*
-	 * Add TSIG record with invalid MAC if required by test.  
+	 * Add TSIG record with valid MAC if required by test.  
 	 */
 	if (n > 0 && strcmp(opts[item->test].name, "dnswkk") == 0) {
 		time_t now;
@@ -1250,9 +1253,6 @@ dotest(struct workitem *item) {
 		unsigned char *rdlen;	/* rdata len pointer */
 		unsigned char *dp;	/* digest start pointer */
 		unsigned char *mp;	/* pointer to MAC */
-		HMAC_CTX *hmctx;
-
-#define	ALGNAME "\013hmac-sha256"	/* lower case */
 
 		hmctx = HMAC_CTX_new();
 		if (hmctx == NULL)
@@ -1279,8 +1279,8 @@ dotest(struct workitem *item) {
 		rdlen = cp;				/* save rdlen ptr */
 		cp += 2;
 		dp = cp;
-		memcpy(cp, ALGNAME, sizeof(ALGNAME));
-		cp += sizeof(ALGNAME);
+		memcpy(cp, HMACSHA256W, sizeof(HMACSHA256W));
+		cp += sizeof(HMACSHA256W);
 		ns_put16(0, cp);			/* high time */
 		cp += 2;
 		time(&now);
@@ -1313,6 +1313,7 @@ dotest(struct workitem *item) {
 		item->buf[11] += 1;			/* adcount */
 		n = cp - item->buf;			/* total length */
 		HMAC_CTX_free(hmctx);
+		hmctx = NULL;
 	}
 
 	if (n > 0) {
@@ -1356,6 +1357,8 @@ dotest(struct workitem *item) {
 		APPEND(ids[item->id], item, idlink);
 	} else {
  error:
+		if (hmctx != NULL)
+			HMAC_CTX_free(hmctx);
 		addtag(item, "failed");
 		item->summary->allok = 0;
 		item->summary->seenfailure = 1;
@@ -1757,6 +1760,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	char addrbuf[64];
 	int ednsvers = 0;
 	int ok = 1;
+	HMAC_CTX *hmctx = 0;
 
 	/* process message header */
 
@@ -2017,6 +2021,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		addtag(item, "non-empty-additional-section"), ok = 0;
 	} else {
 		for (i = 0; i < adcount; i++) {
+			unsigned char *rs = cp;	/* record start */
+			unsigned char *dp = cp;	/* digest pointer */
+
 			n = dn_expand(buf, eom, cp, name, sizeof(name));
 			if (n < 0 || (eom - cp) < n)
 				goto err;
@@ -2025,6 +2032,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				goto err;
 			type = ns_get16(cp);
 			cp += 2;
+			dp = cp;
 			class = ns_get16(cp);
 			cp += 2;
 			ttl = ns_get32(cp);
@@ -2068,28 +2076,125 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 					goto err;
 			} else if (type == ns_t_opt)
 				goto err;
+
 			if (type == ns_t_tsig && !seentsig) {
+				unsigned char key[32] = { 0 };
 				unsigned char *eor = cp + rdlen;
 				unsigned char *rd = cp;
-				unsigned int maclen;
+				unsigned char *mac;
+				unsigned int maclen, otherlen;
+				unsigned int fudge;
+				u_int64_t ts;
+				time_t now;
+
+				if ((i + 1) != adcount) {
+					addtag(item, "tsig-not-last");
+					goto err;
+				}
+
+				if (strcasecmp(name, "") != 0)
+					goto err;
 				
+				hmctx = HMAC_CTX_new();
+				if (hmctx == NULL)
+					goto err;
+
+				if (!HMAC_Init_ex(hmctx, key, sizeof(key),
+						  EVP_sha256(), NULL))
+					goto err;
+				/*
+				 * Digest transmitted MAC.
+				 */
+				if (!HMAC_Update(hmctx, item->mac,
+						 sizeof(item->mac)))
+					goto err;
+				/*
+				 * Fixup additional record count.
+				 */
+				if (buf[11] == 0) {
+					buf[10] -= 1;
+					buf[11] = 255;
+				} else
+					buf[11] -= 1;
+				/*
+				 * Digest unsigned message.
+				 */
+				if (!HMAC_Update(hmctx, buf, rs - buf))
+					goto err;
+				if (!HMAC_Update(hmctx, (const void *)"", 1))
+					goto err;
+				if (!HMAC_Update(hmctx, dp, 6))	/* class, ttl */
+					goto err;
 				n = dn_expand(buf, rd + rdlen, rd, name,
 					      sizeof(name));
 				if (n < 0 || rdlen < n)
 					goto err;
+				if (strcasecmp(name, HMACSHA256) != 0) {
+					addtag(item, "tsig-wrong-alg");
+					goto err;
+				}
+				/* Digest cannonical form. */
+				if (!HMAC_Update(hmctx,
+						 (const void *)HMACSHA256W,
+						 sizeof(HMACSHA256W)))
+					goto err;
 				rd += n;
 				if ((eor - rd) < 10)
 					goto err;
-				rd += 8;	/* time, fudge */
+				dp = rd;
+				ts = ns_get16(rd);
+				rd += 2;
+				ts <<= 32;
+				ts += ns_get32(rd);
+				rd += 4;
+				fudge = ns_get16(rd);
+				rd += 2;
+				time(&now);
+				if ((ts > (now + fudge)) ||
+				    (ts < (now - fudge)))
+					addtag(item, "tsig-badtime");
+				if (!HMAC_Update(hmctx, dp, rd - dp))
+					goto err;
 				maclen = ns_get16(rd);
 				rd += 2;
+				mac = rd;
 				if ((eor - rd) < maclen)
 					goto err;
 				rd += maclen;	/* skip mac */
-				if ((eor - rd) != 6)
+				if ((eor - rd) < 6)
 					goto err;
-				rd += 2;
+				/* id mismatch */
+				if ((buf[0] != rd[0]) || (buf[1] != rd[1])) {
+					addtag(item, "tsig-bad-old-id");
+					goto err;
+				}
+				rd += 2;	/* skip orig id */
+				dp = rd;	/* error, other data */
 				tsigerror = ns_get16(rd);
+				rd += 2;
+				otherlen = ns_get16(rd);
+				rd += 2;
+				if (tsigerror == ns_r_badtime &&
+				    otherlen != 6) {
+					addtag(item, "tsig-bad-other-len");
+					goto err;
+				}
+				rd += otherlen;
+				if (rd != eor)
+					goto err;
+				if (!HMAC_Update(hmctx, dp, eor - dp))
+					goto err;
+				if (!HMAC_Final(hmctx, item->mac, NULL))
+					goto err;
+				if ((tsigerror == ns_r_noerror ||
+				     tsigerror == ns_r_badtime) &&
+				    memcmp(mac, item->mac,
+					   sizeof(item->mac)) != 0) {
+					addtag(item, "tsig-bad-sig");
+					goto err;
+				}
+				HMAC_CTX_free(hmctx);
+				hmctx = NULL;
 				seentsig = 1;
 			} else if (type == ns_t_tsig)
 				goto err;
@@ -2273,6 +2378,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	item->summary->allok = 0;
 	item->summary->seenfailure = 1;
  done:
+	if (hmctx != NULL)
+		HMAC_CTX_free(hmctx);
 	freeitem(item);
 }
 
