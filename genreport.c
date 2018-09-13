@@ -1279,7 +1279,7 @@ dotest(struct workitem *item) {
 		ns_put16(ns_t_tsig, cp);		/* type */
 		cp += 2;
 		dp = cp;
-		ns_put16(ns_t_any, cp);			/* class */
+		ns_put16(ns_c_any, cp);			/* class */
 		cp += 2;
 		ns_put32(0, cp);			/* ttl */
 		cp += 4;
@@ -2096,13 +2096,14 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				unsigned char *mac;
 				unsigned int maclen, otherlen;
 				unsigned int fudge;
+				int wrongalg = 0;
 				u_int64_t ts;
 				time_t now;
 
-				if ((i + 1) != adcount) {
-					addtag(item, "tsig-not-last");
-					goto err;
-				}
+				if ((i + 1) != adcount)
+					addtag(item, "tsig-not-last"), ok = 0;
+				if (class != ns_c_any)
+					addtag(item, "tsig-bad-class"), ok = 0;
 
 				if (strcasecmp(name, "") != 0)
 					goto err;
@@ -2142,8 +2143,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				if (n < 0 || rdlen < n)
 					goto err;
 				if (strcasecmp(name, HMACSHA256) != 0) {
-					addtag(item, "tsig-wrong-alg");
-					goto err;
+					addtag(item, "tsig-wrong-alg"), ok = 0;
+					wrongalg = 1;
 				}
 				/* Digest cannonical form. */
 				if (!HMAC_Update(hmctx,
@@ -2164,7 +2165,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				time(&now);
 				if ((ts > (now + fudge)) ||
 				    (ts < (now - fudge)))
-					addtag(item, "tsig-badtime");
+					addtag(item, "tsig-badtime"), ok = 0;
 				if (!HMAC_Update(hmctx, dp, rd - dp))
 					goto err;
 				maclen = ns_get16(rd);
@@ -2176,10 +2177,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				if ((eor - rd) < 6)
 					goto err;
 				/* id mismatch */
-				if ((buf[0] != rd[0]) || (buf[1] != rd[1])) {
-					addtag(item, "tsig-bad-old-id");
-					goto err;
-				}
+				if ((buf[0] != rd[0]) || (buf[1] != rd[1]))
+					addtag(item, "tsig-bad-old-id"), ok = 0;
 				rd += 2;	/* skip orig id */
 				dp = rd;	/* error, other data */
 				tsigerror = ns_get16(rd);
@@ -2187,10 +2186,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				otherlen = ns_get16(rd);
 				rd += 2;
 				if (tsigerror == ns_r_badtime &&
-				    otherlen != 6) {
-					addtag(item, "tsig-bad-other-len");
-					goto err;
-				}
+				    otherlen != 6)
+					addtag(item,
+					       "tsig-bad-other-len"), ok = 0;
 				rd += otherlen;
 				if (rd != eor)
 					goto err;
@@ -2198,12 +2196,12 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 					goto err;
 				if (!HMAC_Final(hmctx, item->mac, NULL))
 					goto err;
-				if ((tsigerror == ns_r_noerror ||
+				if (!wrongalg &&
+				    (tsigerror == ns_r_noerror ||
 				     tsigerror == ns_r_badtime) &&
 				    memcmp(mac, item->mac,
 					   sizeof(item->mac)) != 0) {
-					addtag(item, "tsig-bad-sig");
-					goto err;
+					addtag(item, "tsig-bad-sig"), ok = 0;
 				}
 				HMAC_CTX_free(hmctx);
 				hmctx = NULL;
