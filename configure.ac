@@ -10,7 +10,7 @@ AC_SEARCH_LIBS([res_mkquery],[resolv bind])
 AC_SEARCH_LIBS([res_9_mkquery],[resolv bind])
 AC_SEARCH_LIBS([__res_mkquery],[resolv bind])
 AC_CHECK_HEADERS(sys/types.h netinet/in.h arpa/nameser.h resolv.h)
-AX_CHECK_OPENSSL([:],[AC_MSG_FAILURE([OpenSSL/LibreSSL not found])])
+AX_CHECK_OPENSSL
 CFLAGS="$CFLAGS $OPENSSL_INCLUDES"
 LIBS="$LIBS $OPENSSL_LIBS"
 LDFLAGS="$LDFLAGS $OPENSSL_LDFLAGS"
