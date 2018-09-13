@@ -45,6 +45,12 @@
 
 #include <openssl/hmac.h>
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+#define HMAC_CTX_new() &(_ctx), HMAC_CTX_init(&_ctx)
+#define HMAC_CTX_free(ptr) HMAC_CTX_cleanup(ptr)
+#endif
+
+
 #ifndef FD_COPY
 #define FD_COPY(x, y) memmove(y, x, sizeof(*x))
 #endif
@@ -1126,6 +1132,9 @@ dotest(struct workitem *item) {
 	unsigned int opcode;
 	socklen_t ss_len;
 	HMAC_CTX *hmctx = NULL;
+#if defined(HMAC_CTX_new)
+	HMAC_CTX _ctx;
+#endif
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
@@ -1761,6 +1770,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	int ednsvers = 0;
 	int ok = 1;
 	HMAC_CTX *hmctx = 0;
+#if defined(HMAC_CTX_new)
+	HMAC_CTX _ctx;
+#endif
 
 	/* process message header */
 
