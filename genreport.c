@@ -1770,13 +1770,13 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	char name[1024], ns[1024];
 	unsigned int i, id, qr, aa, tc, rd, ra, z, ad, cd;
 	unsigned int qrcount, ancount, aucount, adcount;
-	unsigned int opcode, rcode, tsigerror;
+	unsigned int opcode, rcode, tsigerror = 0;
 	unsigned int ednssize = 0, class, ednsttl = 0, ttl, rdlen;
 	unsigned short type;
 	unsigned char *cp, *eom;
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
-	int seenecho = 0, seentsig = 0;
+	int seenecho = 0, seentsig = 0, proxy = 0, addrcode = 1;
 	int n;
 	char addrbuf[64];
 	int ednsvers = 0;
@@ -2185,6 +2185,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				/*
 				 * Restore original id.
 				 */
+				if (buf[0] != oid[0] || buf[1] != oid[1])
+					proxy = 1;
 				buf[0] = oid[0];
 				buf[1] = oid[1];
 
@@ -2309,15 +2311,18 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		    ((rcode != 0 && !opts[item->test].cookie) ||
 		     (rcode != 0 && (rcode != ns_r_badcookie || !seencookie) &&
 		      opts[item->test].cookie)))
-			addtag(item, rcodetext(rcode)), ok = 0;
+			addtag(item, rcodetext(rcode)), ok = 0, addrcode = 0;
 		/* Expect NOTIMP */
 		if (opts[item->test].opcode != 0 && rcode != 4)
-			addtag(item, rcodetext(rcode)), ok = 0;
+			addtag(item, rcodetext(rcode)), ok = 0, addrcode = 0;
 	}
 
 	/* Report the TSIG error if any */
-	if (seentsig && rcode == ns_r_notauth && tsigerror != 0)
+	if (seentsig && tsigerror != 0) {
+		if (addrcode && rcode != ns_r_notauth)
+			addtag(item, rcodetext(rcode)), ok = 0;
 		addtag(item, tsigerrortext(tsigerror)), ok = 0;
+	}
 
 	/* Report if we didn't get a TSIG when we were expecting it */
 	if (strcmp(opts[item->test].name, "dnswkk") == 0 && !seentsig)
@@ -2421,6 +2426,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	}
 	if (seenecs)
 		addtag(item, "subnet");
+	if (proxy)
+		addtag(item, "proxy");
 
 	goto done;
  err:
