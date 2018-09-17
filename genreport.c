@@ -1779,7 +1779,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	int seenecho = 0, seentsig = 0, proxy = 0, addrcode = 1;
 	int tsig_not_last = 0, tsig_bad_class = 0, tsig_bad_ttl = 0;
 	int tsig_wrong_key = 0, tsig_wrong_alg = 0, tsig_bad_time = 0;
-	int tsig_bad_other_len = 0, tsig_bad_sig = 0;
+	int tsig_bad_other_len = 0, tsig_bad_sig = 0, tsig_bad_fudge = 0;
 	int n;
 	char addrbuf[64];
 	int ednsvers = 0;
@@ -2143,6 +2143,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				ts += ns_get32(rd);
 				rd += 4;
 				fudge = ns_get16(rd);
+				if (fudge == 0)
+					tsig_bad_fudge = 1;
 				rd += 2;
 				time(&now);
 				if ((ts > (now + fudge)) ||
@@ -2335,6 +2337,8 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		addtag(item, "tsig-wrong-alg"), ok = 0;
 	if (tsig_bad_time)
 		addtag(item, "tsig-bad-time"), ok = 0;
+	if (tsig_bad_fudge)
+		addtag(item, "tsig-bad-fudge"), ok = 0;
 	if (tsig_bad_other_len)
 		addtag(item, "tsig-bad-other-len"), ok = 0;
 	if (tsig_bad_sig)
