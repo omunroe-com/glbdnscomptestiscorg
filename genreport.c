@@ -1777,6 +1777,9 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	int seenopt = 0, seensoa = 0, seenrrsig = 0;
 	int seennsid = 0, seenecs = 0, seenexpire = 0, seencookie = 0;
 	int seenecho = 0, seentsig = 0, proxy = 0, addrcode = 1;
+	int tsig_not_last = 0, tsig_bad_class = 0, tsig_bad_ttl = 0;
+	int tsig_wrong_key = 0, tsig_wrong_alg = 0, tsig_bad_time = 0;
+	int tsig_bad_other_len = 0, tsig_bad_sig = 0;
 	int n;
 	char addrbuf[64];
 	int ednsvers = 0;
@@ -2102,8 +2105,6 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				goto err;
 
 			if (type == ns_t_tsig && !seentsig) {
-				int wrongalg = 0;
-				int wrongkey = 0;
 				time_t now;
 				u_int64_t ts;
 				unsigned char *ep; /* error pointer */
@@ -2118,24 +2119,20 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				unsigned int maclen, otherlen;
 
 				if ((i + 1) != adcount)
-					addtag(item, "tsig-not-last"), ok = 0;
+					tsig_not_last = 1;
 				if (class != ns_c_any)
-					addtag(item, "tsig-bad-class"), ok = 0;
+					tsig_bad_class = 1;
 				if (ttl != 0)
-					addtag(item, "tsig-bad-ttl"), ok = 0;
-				if (strcasecmp(name, "") != 0) {
-					addtag(item, "tsig-wrong-key"), ok = 0;
-					wrongkey = 1;
-				}
+					tsig_bad_ttl = 1;
+				if (strcasecmp(name, "") != 0)
+					tsig_wrong_key = 1;
 				
 				n = dn_expand(buf, rd + rdlen, rd, name,
 					      sizeof(name));
 				if (n < 0 || rdlen < n)
 					goto err;
-				if (strcasecmp(name, HMACSHA256) != 0) {
-					addtag(item, "tsig-wrong-alg"), ok = 0;
-					wrongalg = 1;
-				}
+				if (strcasecmp(name, HMACSHA256) != 0)
+					tsig_wrong_alg = 1;
 				rd += n;
 				if ((eor - rd) < 10)
 					goto err;
@@ -2150,7 +2147,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				time(&now);
 				if ((ts > (now + fudge)) ||
 				    (ts < (now - fudge)))
-					addtag(item, "tsig-badtime"), ok = 0;
+					tsig_bad_time = 1;
 				maclen = ns_get16(rd);
 				rd += 2;
 				if ((eor - rd) < maclen)
@@ -2168,8 +2165,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				rd += 2;
 				if (tsigerror == ns_r_badtime &&
 				    otherlen != 6)
-					addtag(item,
-					       "tsig-bad-other-len"), ok = 0;
+					tsig_bad_other_len = 1;
 				rd += otherlen;
 				if (rd != eor)
 					goto err;
@@ -2243,10 +2239,10 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				hmctx = NULL;
 				if ( (tsigerror == ns_r_noerror ||
 				     tsigerror == ns_r_badtime) &&
-				    (wrongkey || wrongalg ||
+				    (tsig_wrong_key || tsig_wrong_alg ||
 				     maclen != sizeof(digest) ||
 				     (memcmp(mac, digest, maclen) != 0)))
-					addtag(item, "tsig-bad-sig"), ok = 0;
+					tsig_bad_sig = 1;
 				seentsig = 1;
 			} else if (type == ns_t_tsig)
 				goto err;
@@ -2327,6 +2323,22 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 	/* Report if we didn't get a TSIG when we were expecting it */
 	if (strcmp(opts[item->test].name, "dnswkk") == 0 && !seentsig)
 		addtag(item, "notsig"), ok = 0;
+	if (tsig_not_last)
+		addtag(item, "tsig-not-last"), ok = 0;
+	if (tsig_bad_class)
+		addtag(item, "tsig-bad-class"), ok = 0;
+	if (tsig_bad_ttl)
+		addtag(item, "tsig-bad-ttl"), ok = 0;
+	if (tsig_wrong_key)
+		addtag(item, "tsig-wrong-key"), ok = 0;
+	if (tsig_wrong_alg)
+		addtag(item, "tsig-wrong-alg"), ok = 0;
+	if (tsig_bad_time)
+		addtag(item, "tsig-bad-time"), ok = 0;
+	if (tsig_bad_other_len)
+		addtag(item, "tsig-bad-other-len"), ok = 0;
+	if (tsig_bad_sig)
+		addtag(item, "tsig-bad-sig"), ok = 0;
 
 	/* Expect BADVERS to EDNS Version != 0 */
 	if (opts[item->test].version != 0)
