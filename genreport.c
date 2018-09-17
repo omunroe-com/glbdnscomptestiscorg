@@ -881,7 +881,7 @@ printandfree(struct summary *summary) {
 		printf(" all ok");
 	else
 		for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
-			if (opts[i].what != 0 && (opts[i].what & what) == 0)
+			if ((opts[i].what & what) == 0)
 				continue;
 			if (summary->results[i][0] == 0)
 				strncpy(summary->results[i], "skipped", 100);
@@ -927,8 +927,7 @@ report(struct summary *summary) {
 		     summary->last < sizeof(opts)/sizeof(opts[0]);
 		     summary->last++) {
 			struct workitem *item;
-			if (opts[summary->last].what != 0 &&
-			    (opts[summary->last].what & what) == 0)
+			if ((opts[summary->last].what & what) == 0)
 				continue;
 			item = calloc(1, sizeof(*item));
 			if (item == NULL)
@@ -1440,7 +1439,7 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 
 	for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 		struct workitem *item;
-		if (opts[i].what != 0 && (opts[i].what & what) == 0)
+		if ((opts[i].what & what) == 0)
 			continue;
 
 		item = calloc(1, sizeof(*item));
