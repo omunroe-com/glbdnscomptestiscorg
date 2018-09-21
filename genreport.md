@@ -275,6 +275,9 @@ if all subtests to a particular server succeed.
 **dig11 COMM**
 : Send a query that is typical of what dig from BIND 9.11 sends.
 
+**dnswkk**
+: Send a plain DNS request with TSIG signature.  The key is name is ".", the algorith is "hmac-sha256", the secret is 0-32 zero bytes.
+
 **icmp**
 : Send a icmp / icmp6 echo request.
 
