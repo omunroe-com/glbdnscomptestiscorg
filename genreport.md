@@ -275,6 +275,9 @@ if all subtests to a particular server succeed.
 **dig11 COMM**
 : Send a query that is typical of what dig from BIND 9.11 sends.
 
+**icmp**
+: Send a icmp / icmp6 echo request.
+
 **A TYPE**
 : Send a plain DNS query with type code A.
 

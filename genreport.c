@@ -358,6 +358,10 @@ static struct {
 	  "dig +noedns +noad +norec -y hmac-sha256:.:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= SOA <zone>"
 	},
 
+	{ "icmp",	NONE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0,
+	  "ping / ping6"
+	},
+
 	/*                           size   eflgs vr  T ck ig tc rd ra cd ad aa  z  op  type */
 	{ "A",         TYPE,  0, "",    0, 0x0000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, ns_t_a,
 	  "dig +noedns +noad +norec A <zone>"
@@ -628,6 +632,7 @@ struct workitem {
 	int havelen;			/* readlen is tcp message length */
 	int readlen;			/* how much we need to read */
 	int read;			/* how much has been read so far */
+	int icmp;			/* this is a icmp echo request */
 	unsigned char buf[512];		/* the question we sent */
 	unsigned char tcpbuf[0x10000];	/* where to accumulate the tcp response */
 	unsigned char mac[32];		/* tsig hmac-sha256 mac */
@@ -1057,7 +1062,7 @@ addtag(struct workitem *item, const char *tag) {
 }
 
 /*
- * Resend a UDP request.
+ * Resend a UDP/ICMP request.
  */
 static void
 resend(struct workitem *item) {
@@ -1066,11 +1071,17 @@ resend(struct workitem *item) {
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
-		fd = udp4;
+		if (item->icmp)
+			fd = icmp4;
+		else
+			fd = udp4;
 		ss_len = sizeof(struct sockaddr_in);
 		break;
 	case AF_INET6:
-		fd = udp6;
+		if (item->icmp)
+			fd = icmp6;
+		else
+			fd = udp6;
 		ss_len = sizeof(struct sockaddr_in6);
 		break;
 	}
@@ -1120,6 +1131,159 @@ resend(struct workitem *item) {
 	}
 }
 
+unsigned short
+cksum(void *ptr, size_t len) {
+	unsigned char *data = ptr;
+	unsigned int sum = 0;
+
+	while (len > 1) {
+		sum += *(unsigned short *)(void *)data;
+		if (sum & 0x80000000)
+			sum = (sum & 0xFFFF) + (sum >> 16);
+		data += 2;
+		len -= 2;
+	}
+
+	if (len != 0)
+		sum += *(unsigned char*)data;
+
+	while (sum >> 16)
+		sum = (sum & 0xFFFF) + (sum >> 16);
+
+	return (~sum);
+}
+
+static void
+send_icmp4(struct workitem *item) {
+	struct icmp icmp;
+	int id = random() & 0xffff;
+	int tries = 0;
+	int n;
+
+	while (!checkseq(&item->summary->storage, id) &&
+	       tries++ < 0xffff)
+		id = (id + 1) & 0xffff;
+
+	if (tries == 0xffff) {
+		addtag(item, "skipped");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
+		freeitem(item);
+		return;
+	}
+
+	item->id = id;
+
+	memset(&icmp, 0, sizeof(icmp));
+	icmp.icmp_type = ICMP_ECHO;
+	icmp.icmp_code = 0;
+	icmp.icmp_id = ident;
+	icmp.icmp_seq = htons(item->id);
+	icmp.icmp_cksum = cksum(&icmp, sizeof(icmp));
+	memcpy(item->buf, &icmp, sizeof(icmp));
+	item->buflen = sizeof(icmp);
+
+	if (!item->outstanding && outstanding > maxoutstanding) {
+		gettimeofday(&item->when, NULL);
+		item->when.tv_sec += 1;
+		APPEND(pending, item, plink);
+		APPEND(seq[item->id], item, seqlink);
+		return;
+	}
+
+	gettimeofday(&item->when, NULL);
+	item->when.tv_sec += 1;
+
+	APPEND(work, item, link);
+	APPEND(seq[item->id], item, seqlink);
+
+	n = sendto(icmp4, &icmp, sizeof(icmp), 0,
+		   (struct sockaddr *)&item->summary->storage,
+		   sizeof(struct sockaddr_in));
+	if (n < 0) {
+		addtag(item, "skipped");
+		freeitem(item);
+	}
+}
+
+static void
+send_icmp6(struct workitem *item) {
+	struct icmp6_hdr icmp;
+	int id = random() & 0xffff;
+	int tries = 0;
+	int n;
+
+	while (!checkseq(&item->summary->storage, id) &&
+	       tries++ < 0xffff)
+		id = (id + 1) & 0xffff;
+
+	if (tries == 0xffff) {
+		addtag(item, "skipped");
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
+		freeitem(item);
+		return;
+	}
+
+	item->id = id;
+
+	memset(&icmp, 0, sizeof(icmp));
+	icmp.icmp6_type = ICMP6_ECHO_REQUEST;
+	icmp.icmp6_code = 0;
+	icmp.icmp6_id = ident;
+	icmp.icmp6_seq = htons(item->id);
+	icmp.icmp6_cksum = cksum(&icmp, sizeof(icmp));
+	memcpy(item->buf, &icmp, sizeof(icmp));
+	item->buflen = sizeof(icmp);
+
+	if (!item->outstanding && outstanding > maxoutstanding) {
+		gettimeofday(&item->when, NULL);
+		item->when.tv_sec += 1;
+		APPEND(pending, item, plink);
+		APPEND(seq[item->id], item, seqlink);
+		return;
+	}
+
+	gettimeofday(&item->when, NULL);
+	item->when.tv_sec += 1;
+
+	APPEND(work, item, link);
+	APPEND(seq[item->id], item, seqlink);
+
+	n = sendto(icmp6, &icmp, sizeof(icmp), 0,
+		   (struct sockaddr *)&item->summary->storage,
+		   sizeof(struct sockaddr_in6));
+	if (n < 0) {
+		perror("send_icmp6: sendto");
+		addtag(item, "skipped");
+		freeitem(item);
+	}
+}
+
+static void
+send_icmp(struct workitem *item) {
+
+	item->icmp = 1;
+
+	switch (item->summary->storage.ss_family) {
+	case AF_INET:
+		if (icmp4 != -1) {
+			send_icmp4(item);
+			return;
+		}
+		break;
+	case AF_INET6:
+		if (icmp6 != -1) {
+			send_icmp6(item);
+			return;
+		}
+		break;
+	}
+
+	addtag(item, "skipped");
+	freeitem(item);
+}
+
 /*
  * Start a individual test.
  */
@@ -1134,6 +1298,11 @@ dotest(struct workitem *item) {
 #if defined(HMAC_CTX_new)
 	HMAC_CTX _ctx;
 #endif
+
+	if (strcmp(opts[item->test].name, "icmp") == 0) {
+		send_icmp(item);
+		return;
+	}
 
 	switch (item->summary->storage.ss_family) {
 	case AF_INET:
@@ -2733,6 +2902,16 @@ finditem(struct sockaddr_storage *storage, int id) {
 	return (item);
 }
 
+static struct workitem *
+findicmp(struct sockaddr_storage *storage, int id) {
+        struct workitem *item = HEAD(seq[id]);
+
+        while (item != NULL &&
+               !storage_equal(storage, &item->summary->storage))
+                item = NEXT(item, seqlink);
+	return (item);
+}
+
 static void
 icmp4read(int fd) {
 	struct workitem *item = NULL;
@@ -2759,10 +2938,15 @@ icmp4read(int fd) {
 	case ICMP_ECHOREPLY:
 		if (icmp->icmp_id != ident)
 			return;
-		int found = checkseq(&storage, icmp->icmp_seq);
-		fprintf(stderr, "found=%u icmp_id=%u icmp_seq=%u\n",
-			found, icmp->icmp_id, ntohs(icmp->icmp_seq));
-		break;
+
+		/* set sin_port so findicmp matches */
+		sin->sin_port = htons(53);
+		item = findicmp(&storage, ntohs(icmp->icmp_seq)); 
+		if (item) {
+			addtag(item, "ok");
+			freeitem(item);
+		}
+		return;
 	case ICMP_UNREACH:
 		hlen = icmp->icmp_ip.ip_hl << 2;
 		offset = offsetof(struct icmp, icmp_ip) + hlen;
@@ -2903,6 +3087,8 @@ icmp4read(int fd) {
 	}
 	if (item && reason) {
 		addtag(item, reason);
+		item->summary->allok = 0;
+		item->summary->seenfailure = 1;
 		freeitem(item);
 	}
 }
@@ -2935,10 +3121,14 @@ icmp6read(int fd) {
 	case ICMP6_ECHO_REPLY:
 		if (icmp6->icmp6_id != ident)
 			return;
-		int found = checkseq(&storage, icmp6->icmp6_seq);
-		fprintf(stderr, "found=%u icmp6_id=%u icmp6_seq=%u\n",
-			found, icmp6->icmp6_id, ntohs(icmp6->icmp6_seq));
-		break;
+		/* set sin6_port so findicmp matches */
+		sin6->sin6_port = htons(53);
+		item = findicmp(&storage, ntohs(icmp6->icmp6_seq)); 
+		if (item) {
+			addtag(item, "ok");
+			freeitem(item);
+		}
+		return;
 	case ICMP6_PACKET_TOO_BIG:
 		offset = offsetof(struct icmp6_hdr, icmp6_data8) + 4;
 		ip6 = (struct ip6_hdr *)&buf[offset];
