@@ -579,6 +579,7 @@ struct summary {
 	} link;
 	char zone[1024];		/* the zone's name */
 	char ns[1024];			/* the server's name */
+	char target[1024];		/* the server's real name */
 	struct sockaddr_storage storage;/* server we are talking to */
 	int tests;			/* number of outstanding tests */
 	unsigned int last;		/* last test sent */
@@ -603,6 +604,7 @@ struct summary {
 	int allok;			/* all answers are current ok */
 	int allrefused;			/* all answers are current ok */
 	int allservfail;		/* all answers are current ok */
+	int targetok;			/* target is valid */
 	struct summary *xlink;		/* cross link of recursive A/AAAA */
 	unsigned int nsidlen;
 	char nsid[100];			/* nsid if found */
@@ -772,8 +774,11 @@ printandfree(struct summary *summary) {
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    (summary->cnamea || summary->cnameaaaa)) {
-		printf("%s. %s: nameserver is a CNAME\n",
-		       summary->zone, summary->ns);
+		printf("%s. %s: nameserver is a CNAME%s%s%s\n",
+		       summary->zone, summary->ns,
+		       summary->targetok ? " to '" : "",
+		       summary->targetok ? summary->target : "",
+		       summary->targetok ? "'" : "");
 		freesummary(summary);
 		return;
 	}
@@ -2115,6 +2120,11 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 					item->summary->cnamea = 1;
 				else
 					item->summary->cnameaaaa = 1;
+				n = dn_expand(buf, eom, cp,
+					      item->summary->target,
+					      sizeof(item->summary->target));
+				if (n > 0)
+					item->summary->targetok = 1;
 			}
 			/* Don't follow CNAME for NS lookups. */
 			if (item->type == ns_t_ns && type == ns_t_cname &&
