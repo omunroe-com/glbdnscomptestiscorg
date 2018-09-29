@@ -117,6 +117,7 @@ static int debug = 0;
 static int inorder = 0;
 static int serial = 0;
 static int printnsid = 0;
+static int recursive = 0;
 static long long sent;
 
 
@@ -1379,7 +1380,7 @@ dotest(struct workitem *item) {
 	 */
 	if (opts[item->test].tc)
 		item->buf[2] |= 0x2;	/* set tc */
-	if (opts[item->test].rd)
+	if (recursive || opts[item->test].rd)
 		item->buf[2] |= 0x1;	/* set rd */
 	else
 		item->buf[2] &= ~0x1;	/* clear rd */
@@ -2562,11 +2563,11 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		addtag(item, "nocd"), ok = 0;
 
 	/* AA is only defined for QUERY */
-	if (!aa && opts[item->test].version == 0 &&
+	if (!recursive && !aa && opts[item->test].version == 0 &&
 	    rcode == ns_r_noerror && opts[item->test].opcode == 0)
 		addtag(item, "noaa"), ok = 0;
 
-	if (aa && opts[item->test].opcode != 0)
+	if (aa && (opts[item->test].opcode != 0 || recursive))
 		addtag(item, "aa"), ok = 0;
 
 	/* RA is only defined for QUERY */
@@ -2574,9 +2575,11 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 		addtag(item, "ra"), ok = 0;
 
 	/* RD is only defined for QUERY */
-	if (rd && (opts[item->test].opcode || !opts[item->test].rd))
+	if (!recursive && rd &&
+	    (opts[item->test].opcode || !opts[item->test].rd))
 		addtag(item, "rd"), ok = 0;
-	if (!rd && opts[item->test].rd && opts[item->test].opcode == 0)
+	if (!rd && (opts[item->test].rd || recursive ) &&
+	    opts[item->test].opcode == 0)
 		addtag(item, "nord"), ok = 0;
 
 	/* AD is only defined for QUERY */
@@ -2880,7 +2883,12 @@ readstdin(int fd) {
 	n = sscanf(line, "%1024s%1024s%1024s", zone, ns, address);
 	if (n == 3)
 		check(zone, ns, address, NULL);
-	if (n == 2) {
+	if (n == 2 && strcasecmp(ns, "localhost") == 0) {
+		if (!ipv6only)
+			check(zone, ns, "127.0.0.1", NULL);
+		if (!ipv4only)
+			check(zone, ns, "::1", NULL);
+	} else if (n == 2) {
 		struct summary *summarya, *summaryaaaa;
 
 		/*
@@ -3454,7 +3462,7 @@ main(int argc, char **argv) {
 	char *end;
 	int on = 1;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopr:stT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopr:RstT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -3507,6 +3515,7 @@ main(int argc, char **argv) {
 		case 'o': inorder = 1; break;
 		case 'p': serial = 0; break;
 		case 'r': addserver(optarg); break;
+		case 'R': recursive = 1; break;
 		case 's': serial = 1; break;
 		case 't': what = TYPE; serial = 1; break;
 		case 'T': what = TYPE;
@@ -3539,6 +3548,7 @@ main(int argc, char **argv) {
 			printf("\t-o: inorder output\n");
 			printf("\t-p: parallelize tests\n");
 			printf("\t-r: use specified recursive server\n");
+			printf("\t-R: recursive mode\n");
 			printf("\t-s: serialize tests\n");
 			printf("\t-t: type tests (serial)\n");
 			printf("\t-T: print type list for type test (-t)\n");

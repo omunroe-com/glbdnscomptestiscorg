@@ -8,7 +8,7 @@ genreport - generate a report about DNS server compliance.
 
 # SYNOPSIS
 
-**genreport** **[-46abBcdDeEfLopstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
+**genreport** **[-46abBcdDeEfLnopRstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
 
 # DESCRIPTION
 
@@ -90,6 +90,9 @@ tests for that server complete.
 **-r server**
 : use specified recursive server to look up name servers for a zone
 and addresses.
+
+**-R**
+: run recursive tests.
 
 **-s**
 : serialize tests.
