@@ -98,7 +98,7 @@ static fd_set rfds, wfds;
 static int outstanding = 0;
 static int maxoutstanding = 100;
 
-static void(*rhandlers[FD_SETSIZE])(int);
+static void(*rhandlers[FD_SETSIZE])(int, int);
 static void(*whandlers[FD_SETSIZE])(int);
 
 static int udp4 = -1;
@@ -1553,7 +1553,7 @@ dotest(struct workitem *item) {
  * Start a series of tests.
  */
 static void
-check(char *zone, char *ns, char *address, struct summary *parent) {
+check(char *zone, char *ns, char *address, struct summary *parent, int port) {
 	size_t i;
 	int fd;
 	struct in_addr addr;
@@ -1568,7 +1568,7 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 		s->sin6_len = sizeof(struct sockaddr_in6);
 #endif
 		s->sin6_family = AF_INET6;
-		s->sin6_port = htons(53);
+		s->sin6_port = htons(port);
 		s->sin6_addr = addr6;
 		fd = udp6;
 	} else if (inet_pton(AF_INET, address, &addr) == 1) {
@@ -1577,7 +1577,7 @@ check(char *zone, char *ns, char *address, struct summary *parent) {
 		s->sin_len = sizeof(struct sockaddr_in);
 #endif
 		s->sin_family = AF_INET;
-		s->sin_port = htons(53);
+		s->sin_port = htons(port);
 		s->sin_addr = addr;
 		fd = udp4;
 	} else
@@ -1940,7 +1940,7 @@ xx(const char *d, const unsigned char *p, int len) {
  * Process a recieved response.
  */
 static void
-process(struct workitem *item, unsigned char *buf, int buflen) {
+process(struct workitem *item, unsigned char *buf, int buflen, int port) {
 	char name[1024], ns[1024];
 	unsigned int i, id, qr, aa, tc, rd, ra, z, ad, cd;
 	unsigned int qrcount, ancount, aucount, adcount;
@@ -2141,7 +2141,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				inet_ntop(AF_INET, cp,
 					  addrbuf, sizeof(addrbuf));
 				check(item->summary->zone, item->summary->ns,
-				      addrbuf, item->summary);
+				      addrbuf, item->summary, port);
 				item->summary->done = 1;
 			}
 			if (item->type == ns_t_aaaa && type == ns_t_aaaa &&
@@ -2152,7 +2152,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
 				inet_ntop(AF_INET6, cp,
 					  addrbuf, sizeof(addrbuf));
 				check(item->summary->zone, item->summary->ns,
-				      addrbuf, item->summary);
+				      addrbuf, item->summary, port);
 				item->summary->done = 1;
 			}
 			if (item->type == ns_t_ns && type == ns_t_ns &&
@@ -2641,7 +2641,7 @@ process(struct workitem *item, unsigned char *buf, int buflen) {
  * Read a TCP response.
  */
 static void
-tcpread(int fd) {
+tcpread(int fd, int port) {
 	struct workitem *item;
 	int n;
 
@@ -2681,7 +2681,7 @@ tcpread(int fd) {
 			item->read = 0;
 			goto again;
 		}
-		process(item, item->tcpbuf, item->readlen);
+		process(item, item->tcpbuf, item->readlen, port);
 	}
 }
 
@@ -2861,7 +2861,7 @@ connecttoserver(struct workitem *item) {
  * Read zone [server [address]]
  */
 static void
-readstdin(int fd) {
+readstdin(int fd, int port) {
 	char line[4096];
 	char zone[1204];
 	char ns[1204];
@@ -2882,12 +2882,12 @@ readstdin(int fd) {
 	}
 	n = sscanf(line, "%1024s%1024s%1024s", zone, ns, address);
 	if (n == 3)
-		check(zone, ns, address, NULL);
+		check(zone, ns, address, NULL, port);
 	if (n == 2 && strcasecmp(ns, "localhost") == 0) {
 		if (!ipv6only)
-			check(zone, ns, "127.0.0.1", NULL);
+			check(zone, ns, "127.0.0.1", NULL, port);
 		if (!ipv4only)
-			check(zone, ns, "::1", NULL);
+			check(zone, ns, "::1", NULL, port);
 	} else if (n == 2) {
 		struct summary *summarya, *summaryaaaa;
 
@@ -2931,7 +2931,7 @@ findicmp(struct sockaddr_storage *storage, int id) {
 }
 
 static void
-icmp4read(int fd) {
+icmp4read(int fd, int port) {
 	struct workitem *item = NULL;
 	struct sockaddr_storage storage;
 	struct sockaddr_in *sin = (struct sockaddr_in *)&storage;
@@ -2958,7 +2958,7 @@ icmp4read(int fd) {
 			return;
 
 		/* set sin_port so findicmp matches */
-		sin->sin_port = htons(53);
+		sin->sin_port = htons(port);
 		item = findicmp(&storage, ntohs(icmp->icmp_seq)); 
 		if (item) {
 			addtag(item, "ok");
@@ -3112,7 +3112,7 @@ icmp4read(int fd) {
 }
 
 static void
-icmp6read(int fd) {
+icmp6read(int fd, int port) {
 	struct workitem *item = NULL;
 	struct sockaddr_storage storage;
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&storage;
@@ -3140,7 +3140,7 @@ icmp6read(int fd) {
 		if (icmp6->icmp6_id != ident)
 			return;
 		/* set sin6_port so findicmp matches */
-		sin6->sin6_port = htons(53);
+		sin6->sin6_port = htons(port);
 		item = findicmp(&storage, ntohs(icmp6->icmp6_seq)); 
 		if (item) {
 			addtag(item, "ok");
@@ -3311,7 +3311,7 @@ icmp6read(int fd) {
 }
 
 static void
-udpread(int fd) {
+udpread(int fd, int port) {
 	struct workitem *item;
 	struct sockaddr_storage storage;
 	socklen_t len = sizeof(storage);
@@ -3338,7 +3338,7 @@ udpread(int fd) {
 	if (item == NULL)
 		return;
 
-	process(item, buf, n);
+	process(item, buf, n, port);
 }
 
 static void
@@ -3461,8 +3461,9 @@ main(int argc, char **argv) {
 	int done = 0;
 	char *end;
 	int on = 1;
+	int port = 53;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopr:RstT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopP:r:RstT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -3514,6 +3515,7 @@ main(int argc, char **argv) {
 		case 'n': printnsid = 1; break;
 		case 'o': inorder = 1; break;
 		case 'p': serial = 0; break;
+		case 'P': port = atoi(optarg); break;
 		case 'r': addserver(optarg); break;
 		case 'R': recursive = 1; break;
 		case 's': serial = 1; break;
@@ -3547,6 +3549,7 @@ main(int argc, char **argv) {
 			printf("\t-n: printnsid\n");
 			printf("\t-o: inorder output\n");
 			printf("\t-p: parallelize tests\n");
+			printf("\t-P: port to use, (default 53)\n");
 			printf("\t-r: use specified recursive server\n");
 			printf("\t-R: recursive mode\n");
 			printf("\t-s: serialize tests\n");
@@ -3736,7 +3739,7 @@ main(int argc, char **argv) {
 			for (fd = 0; fd <= maxfd; fd++) {
 				if (FD_ISSET(fd, &myrfds) &&
 				    rhandlers[fd] != NULL)
-					(*rhandlers[fd])(fd);
+					(*rhandlers[fd])(fd, port);
 				if (FD_ISSET(fd, &mywfds) &&
 				    whandlers[fd] != NULL)
 					(*whandlers[fd])(fd);
