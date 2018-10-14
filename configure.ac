@@ -6,6 +6,7 @@ AC_CONFIG_SRCDIR([genreport.c])
 AC_CONFIG_HEADER([config.h])
 AC_CONFIG_FILES([Makefile])
 AC_CANONICAL_HOST
+AC_CHECK_FUNCS(strlcpy strlcat)
 AC_SEARCH_LIBS([res_mkquery],[resolv bind])
 AC_SEARCH_LIBS([res_9_mkquery],[resolv bind])
 AC_SEARCH_LIBS([__res_mkquery],[resolv bind])

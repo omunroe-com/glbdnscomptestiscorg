@@ -50,6 +50,9 @@
 #define HMAC_CTX_free(ptr) HMAC_CTX_cleanup(ptr)
 #endif
 
+#ifndef HAVE_STRLCPY
+#define strlcpy(dst, src, len) snprintf(dst, len, "%s", src)
+#endif
 
 #ifndef FD_COPY
 #define FD_COPY(x, y) memmove(y, x, sizeof(*x))
@@ -119,14 +122,17 @@ static int serial = 0;
 static int printnsid = 0;
 static int recursive = 0;
 static long long sent;
+static int json = 0;
 
+static char *jdata = NULL;
+static size_t jdata_len = 0;
 
 #ifdef HAVE_RES_GETSERVERS
 static union res_sockaddr_union servers[10];
 #else
 static union {
-        struct sockaddr_in sin;
-        struct sockaddr_in6 sin6;
+	struct sockaddr_in sin;
+	struct sockaddr_in6 sin6;
 } servers[10];
 #endif
 
@@ -672,6 +678,91 @@ connecttoserver(struct workitem *item);
 static void
 report(struct summary *summary);
 
+void
+jsonadd(char **json, const char *str, size_t *len) {
+	if (*json == NULL) {
+		*json = calloc(1, 10240);
+		if (*json == NULL)
+			return;
+		*len = 10240;
+	}
+	if (strlen(*json) + strlen(str) + 1 > *len) {
+		char *tmp = realloc(*json, *len + 10240);
+		if (tmp == NULL)
+			return;
+		*json = tmp;
+		*len += 10240;
+	}
+#ifdef HAVE_STRLCAT
+	strlcat(*json, str, *len);
+#else
+	strncat(*json, str, *len - strlen(*json) - 1);
+#endif
+}
+
+void
+jsonsafe(const char *str, char *safe, size_t len) {
+	char c;
+
+	while (len > 1) {
+		switch ((c = *str++)) {
+		case '\\':
+			strlcpy(safe, "\\\\", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '"':
+			strlcpy(safe, "\\\"", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\b':
+			strlcpy(safe, "\\b", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\f':
+			strlcpy(safe, "\\f", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\n':
+			strlcpy(safe, "\\n", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\r':
+			strlcpy(safe, "\\r", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\t':
+			strlcpy(safe, "\\t", len);
+			len -= strlen(safe);
+			safe += strlen(safe);
+			break;
+		case '\0':
+			*safe = c;
+			len = 0;
+			break;
+		default:
+			if (c > 0 && c < ' ') {
+				snprintf(safe, len, "\\u%04x", (c & 0xff));
+				len -= strlen(safe);
+				safe += strlen(safe);
+				break;
+			} else {
+				*safe++ = c;
+				*safe = '\0';
+				len--;
+			}
+			break;
+		}
+	}
+	if (len > 0)
+		*safe = '\0';
+}
+
 static int
 storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
 	struct sockaddr_in *sin1, *sin2;
@@ -737,6 +828,34 @@ freesummary(struct summary *summary) {
 	free(summary);
 }
 
+static void
+emiterr(const char *zone, const char *ns, const char *str) {
+	char safe[1024];
+
+	if (json) {
+		if (jdata)
+			jsonadd(&jdata, ", ", &jdata_len);
+		jsonsafe(zone[0] ? zone : ".", safe, sizeof(safe));
+		jsonadd(&jdata, "{ \"zone\": \"", &jdata_len);
+		jsonadd(&jdata, safe, &jdata_len);
+		jsonadd(&jdata, "\"", &jdata_len);
+	
+		if (ns) {
+			jsonsafe(ns, safe, sizeof(safe));
+			jsonadd(&jdata, ", \"servername\": \"", &jdata_len);
+			jsonadd(&jdata, safe, &jdata_len);
+			jsonadd(&jdata, "\"", &jdata_len);
+		}
+
+		jsonadd(&jdata, ", \"error\": \"", &jdata_len);
+		jsonadd(&jdata, str, &jdata_len);
+		jsonadd(&jdata, "\" }", &jdata_len);
+	} else {
+		printf("%s.%s%s: %s\n",
+		       zone, ns ? " " : "", ns ? ns : "", str);
+	}
+}
+
 /*
  * Generate a report line.
  */
@@ -745,47 +864,45 @@ printandfree(struct summary *summary) {
 	struct sockaddr_in *s = (struct sockaddr_in *)&summary->storage;
 	struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&summary->storage;;
 	char addrbuf[64];
+	char buf[2048];
+	char safe[1024];
 	void *addr;
 	unsigned int i;
 	int x;
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->nodataa && summary->nodataaaaa) {
-		printf("%s. %s: no address records found\n",
-		       summary->zone, summary->ns);
+		emiterr(summary->zone, summary->ns, "no address records found");
 		freesummary(summary);
 		return;
 	}
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->nxdomaina && summary->nxdomainaaaa) {
-		printf("%s. %s: no address records found (NXDOMAIN)\n",
-		       summary->zone, summary->ns);
+		emiterr(summary->zone, summary->ns, "no address records found (NXDOMAIN)");
 		freesummary(summary);
 		return;
 	}
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    summary->faileda && summary->failedaaaa) {
-		printf("%s. %s: address lookups failed\n",
-		       summary->zone, summary->ns);
+		emiterr(summary->zone, summary->ns, "address lookups failed");
 		freesummary(summary);
 		return;
 	}
 
 	if ((summary->type == ns_t_a || summary->type == ns_t_aaaa) &&
 	    (summary->cnamea || summary->cnameaaaa)) {
-		printf("%s. %s: nameserver is a CNAME%s%s%s\n",
-		       summary->zone, summary->ns,
-		       summary->targetok ? " to '" : "",
-		       summary->targetok ? summary->target : "",
-		       summary->targetok ? "'" : "");
+		snprintf(buf, sizeof(buf), "nameserver is a CNAME%s%s\n",
+			 summary->targetok ? summary->target : "",
+			 summary->targetok ? "'" : "");
+		emiterr(summary->zone, summary->ns, buf);
 		freesummary(summary);
 		return;
 	}
 
 	if ((summary->type == ns_t_ns) && summary->cname) {
-		printf("%s.: zone is a CNAME\n", summary->zone);
+		emiterr(summary->zone, summary->ns, "zone is a CNAME");
 		freesummary(summary);
 		return;
 	}
@@ -795,35 +912,30 @@ printandfree(struct summary *summary) {
 	 */
 	if (summary->type == ns_t_a &&
 	    summary->nodataa && summary->failedaaaa) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" AAAAA lookup failed\n");
+		emiterr(summary->zone, summary->ns, "AAAA lookup failed");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_aaaa &&
 	    summary->nodataaaaa && summary->faileda) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" A lookup failed\n");
+		emiterr(summary->zone, summary->ns, "A lookup failed");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_a &&
 	    summary->faileda && summary->nxdomainaaaa) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" AAAAA nxdomain\n");
+		emiterr(summary->zone, summary->ns, "AAAA nxdomain");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_aaaa &&
 	    summary->failedaaaa && summary->nxdomaina) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" A nxdomain\n");
+		emiterr(summary->zone, summary->ns, "A nxdomain");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_ns && summary->nodata) {
-		printf("%s.:", summary->zone);
-		printf(" no NS records found\n");
+		emiterr(summary->zone, NULL, "no NS records found");
 		freesummary(summary);
 		return;
 	}
@@ -834,33 +946,27 @@ printandfree(struct summary *summary) {
 	}
 
 	if (summary->type != 0 && summary->nxdomain) {
-		if (summary->type == ns_t_ns) {
-			printf("%s.: NS nxdomain\n", summary->zone);
-			freesummary(summary);
-			return;
-		}
-		printf("%s. %s:", summary->zone, summary->ns);
-		if (summary->type == ns_t_a) printf(" A");
-		if (summary->type == ns_t_aaaa) printf(" AAAA");
-		printf(" nxdomain\n");
+		if (summary->type == ns_t_a)
+			emiterr(summary->zone, NULL, "NS nxdomain");
+		if (summary->type == ns_t_a)
+			emiterr(summary->zone, summary->ns, "A nxdomain");
+		if (summary->type == ns_t_aaaa)
+			emiterr(summary->zone, summary->ns, "AAAA nxdomain");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_a) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" A lookup failed\n");
+		emiterr(summary->zone, summary->ns, "A lookup failed");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_aaaa) {
-		printf("%s. %s:", summary->zone, summary->ns);
-		printf(" AAAA lookup failed\n");
+		emiterr(summary->zone, summary->ns, "AAAA lookup failed");
 		freesummary(summary);
 		return;
 	}
 	if (summary->type == ns_t_ns) {
-		printf("%s.:", summary->zone);
-		printf(" NS lookup failed\n");
+		emiterr(summary->zone, NULL, "NS lookup failed");
 		freesummary(summary);
 		return;
 	}
@@ -887,32 +993,94 @@ printandfree(struct summary *summary) {
 			  addrbuf, sizeof(addrbuf));
 
 	x = -1;
-	printf("%s. @%s (%s.):", summary->zone, addrbuf, summary->ns);
-	if (allok && summary->allok)
-		printf(" all ok");
-	else
+	if (json) {
+		int first = 1;
+		if (jdata)
+			jsonadd(&jdata, ",\n", &jdata_len);
+		jsonsafe(summary->zone[0] ? summary->zone : ".", safe, sizeof(safe));
+		snprintf(buf, sizeof(buf), "{ \"zone\": \"%s\"", safe);
+		jsonadd(&jdata, buf, &jdata_len);
+		snprintf(buf, sizeof(buf), ", \"address\": \"%s\"", addrbuf);
+		jsonadd(&jdata, buf, &jdata_len);
+		if (strcmp(summary->ns, ".") != 0) {
+			jsonsafe(summary->ns, safe, sizeof(safe));
+				snprintf(buf, sizeof(buf), ", \"servername\": \"%s\"", safe);
+				jsonadd(&jdata, buf, &jdata_len);
+		}
+		if (allok && summary->allok) {
+			jsonadd(&jdata, ", \"summary\": \"all ok\" }", &jdata_len);
+			freesummary(summary);
+			return;
+		}
+		jsonadd(&jdata, ", \"tests\": { ", &jdata_len);
 		for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 			if ((opts[i].what & what) == 0)
 				continue;
 			if (summary->results[i][0] == 0)
-				strncpy(summary->results[i], "skipped", 100);
+				strncat(summary->results[i], "skipped", 100);
+			first = 0;
 			if (strcmp(opts[i].name, "do") == 0)
 				x = i;
 			if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
 			    (!badtag || (strcmp(summary->results[x], "ok") != 0 &&
 					 strncmp(summary->results[x], "ok,", 3) != 0)))
 			{
-				printf(" signed=%s", summary->results[x]);
-				if (summary->seenrrsig)
-					printf(",yes");
+				if (!first)
+					jsonadd(&jdata, ", ", &jdata_len);
+				snprintf(buf, sizeof(buf), "\"signed\": \"%s%s\"",
+					 summary->results[x],
+					 summary->seenrrsig ? ",yes" : "");
+				jsonadd(&jdata, buf, &jdata_len);
+				first = 0;
 			}
 			if (badtag) {
 				if (strcmp(summary->results[i], "ok") == 0 ||
 				    strncmp(summary->results[i], "ok,", 3) == 0)
 					continue;
 			}
-			printf(" %s=%s", opts[i].name, summary->results[i]);
+			if (!first)
+				jsonadd(&jdata, ", ", &jdata_len);
+				snprintf(buf, sizeof(buf), "\"%s\": \"%s\"", opts[i].name,
+					 summary->results[i]);
+			jsonadd(&jdata, buf, &jdata_len);
+			first = 0;
 		}
+		jsonadd(&jdata, " }", &jdata_len);
+		if (printnsid && summary->nsidlen != 0U) {
+                        jsonsafe(summary->nsid, safe, sizeof(safe));
+                        snprintf(buf, sizeof(buf), ", \"nsid\": \"%s\"", safe);
+                        jsonadd(&jdata, buf, &jdata_len);
+                }
+		jsonadd(&jdata, " }", &jdata_len);
+		freesummary(summary);
+		return;
+	}
+	printf("%s. @%s (%s.):", summary->zone, addrbuf, summary->ns);
+	if (allok && summary->allok)
+		printf(" all ok");
+	else
+		for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+		if ((opts[i].what & what) == 0)
+			continue;
+		if (summary->results[i][0] == 0)
+			strncpy(summary->results[i], "skipped", 100);
+		if (strcmp(opts[i].name, "do") == 0)
+			x = i;
+		if (strcmp(opts[i].name, "ednstcp") == 0 && x != -1 &&
+		    (!badtag || (strcmp(summary->results[x], "ok") != 0 &&
+				 strncmp(summary->results[x], "ok,", 3) != 0)))
+		{
+			printf(" signed=%s", summary->results[x]);
+			if (summary->seenrrsig)
+				printf(",yes");
+		}
+		if (badtag) {
+			if (strcmp(summary->results[i], "ok") == 0 ||
+			    strncmp(summary->results[i], "ok,", 3) == 0)
+				continue;
+		}
+		printf(" %s=%s", opts[i].name, summary->results[i]);
+	}
 	if (printnsid && summary->nsidlen != 0U) {
 		printf(" (");
 		for (i = 0; i < summary->nsidlen; i++) {
@@ -2913,20 +3081,20 @@ readstdin(int fd, int port) {
 
 static struct workitem *
 finditem(struct sockaddr_storage *storage, int id) {
-        struct workitem *item = HEAD(ids[id]);
-        while (item != NULL &&
-               !storage_equal(storage, &item->summary->storage))
-                item = NEXT(item, idlink);
+	struct workitem *item = HEAD(ids[id]);
+	while (item != NULL &&
+	       !storage_equal(storage, &item->summary->storage))
+		item = NEXT(item, idlink);
 	return (item);
 }
 
 static struct workitem *
 findicmp(struct sockaddr_storage *storage, int id) {
-        struct workitem *item = HEAD(seq[id]);
+	struct workitem *item = HEAD(seq[id]);
 
-        while (item != NULL &&
-               !storage_equal(storage, &item->summary->storage))
-                item = NEXT(item, seqlink);
+	while (item != NULL &&
+	       !storage_equal(storage, &item->summary->storage))
+		item = NEXT(item, seqlink);
 	return (item);
 }
 
@@ -3463,7 +3631,7 @@ main(int argc, char **argv) {
 	int on = 1;
 	int port = 53;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:Lm:nopP:r:RstT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:jLm:nopP:r:RstT")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -3496,6 +3664,9 @@ main(int argc, char **argv) {
 			  }
 			  what = EXPL;
 			  break;
+		case 'j':
+			json = 1;
+			break;
 		case 'L': 
 			for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 				printf("%s", opts[i].name);
@@ -3528,7 +3699,7 @@ main(int argc, char **argv) {
 			}
 			exit (0);
 		default:
-			printf("usage: genreport [-46abBcdeEfLnopstT] "
+			printf("usage: genreport [-46abBcdeEfjLnopstT] "
 			       "[-i test] [-I test] [-m maxoutstanding] "
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
@@ -3544,6 +3715,7 @@ main(int argc, char **argv) {
 			printf("\t-f: add full mode tests (incl edns)\n");
 			printf("\t-i: individual test\n");
 			printf("\t-I: remove individual test\n");
+			printf("\t-j: emit json\n");
 			printf("\t-L: list tests and their grouping\n");
 			printf("\t-m: set maxoutstanding\n");
 			printf("\t-n: printnsid\n");
@@ -3868,4 +4040,10 @@ main(int argc, char **argv) {
 		if (eof && item == NULL)
 			done = 1;
 	} while (!done);
+	if (json) {
+		printf("{\n%s%s%s\n}\n",
+		       jdata ? "\"data\": [ " : "",
+		       jdata ? jdata : "",
+		       jdata ? " ]" : "");
+	}
 }

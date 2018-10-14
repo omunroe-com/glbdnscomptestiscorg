@@ -8,7 +8,7 @@ genreport - generate a report about DNS server compliance.
 
 # SYNOPSIS
 
-**genreport** **[-46abBcdDeEfLnopPRstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
+**genreport** **[-46abBcdDeEfjLnopPRstT]** **[-i *test*]** **[-I *test*]** **[-m *maxoutstanding*]** **[-r *server*]**
 
 # DESCRIPTION
 
@@ -70,6 +70,9 @@ Options are order dependent.
 
 **-I test**
 : remove a individual test.
+
+**-h**
+: emit json.
 
 **-L**
 : list tests and their grouping.
