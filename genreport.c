@@ -50,6 +50,9 @@
 #define HMAC_CTX_free(ptr) HMAC_CTX_cleanup(ptr)
 #endif
 
+#ifndef HAVE_STRLCPY
+#define strlcpy(dst, src, len) snprintf(dst, len, "%s", src)
+#endif
 
 #ifndef FD_COPY
 #define FD_COPY(x, y) memmove(y, x, sizeof(*x))
@@ -690,7 +693,11 @@ jsonadd(char **json, const char *str, size_t *len) {
 		*json = tmp;
 		*len += 10240;
 	}
+#ifdef HAVE_STRLCAT
 	strlcat(*json, str, *len);
+#else
+	strncat(*json, str, *len - strlen(*json) - 1);
+#endif
 }
 
 void
