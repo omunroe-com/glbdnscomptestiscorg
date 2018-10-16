@@ -111,6 +111,9 @@ with EDNS, FULL or COMM tests you need to specify them after the -t switch.
 **-T**
 : print type list for type test (-t).
 
+**-u**
+: only test a IP address once.
+
 # EXAMPLES
 
 ## Test all servers for a zone

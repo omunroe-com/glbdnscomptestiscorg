@@ -123,6 +123,7 @@ static int printnsid = 0;
 static int recursive = 0;
 static long long sent;
 static int json = 0;
+static int unique = 0;
 
 static char *jdata = NULL;
 static size_t jdata_len = 0;
@@ -789,6 +790,52 @@ storage_equal(struct sockaddr_storage *s1, struct sockaddr_storage *s2) {
 			return (0);
 		return (1);
 	}
+	return (0);
+}
+
+static int
+sentto(struct sockaddr_storage *s) {
+	struct sockaddr_in *sin;
+	struct sockaddr_in6 *sin6;
+	static struct listitem {
+		struct listitem *next;
+		struct sockaddr_storage s;
+	} *table[100000] = { NULL }, *item = NULL;
+	unsigned int hash = 0;
+	
+	switch (s->ss_family) {
+	case AF_INET:
+		sin = (struct sockaddr_in *)s;
+		hash = sin->sin_addr.s_addr;
+		break;
+	case AF_INET6:
+		sin6 = (struct sockaddr_in6 *)s;
+		
+#ifndef s6_addr32
+#  if defined(__sun)
+#    define s6_addr32   _S6_un._S6_u32
+#  elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)|| defined(__DragonFly__)
+#    define s6_addr32   __u6_addr.__u6_addr32
+#  else
+#    error s6_addr32 needs to be defined.
+#  endif
+#endif
+		hash = sin6->sin6_addr.s6_addr32[0] ^ sin6->sin6_addr.s6_addr32[1] ^
+		       sin6->sin6_addr.s6_addr32[2] ^ sin6->sin6_addr.s6_addr32[3];
+		break;
+	}
+
+	hash %= 100000;
+	for (item = table[hash]; item != NULL; item = item->next) {
+		if (storage_equal(&item->s, s))
+			return (1);
+	}
+	item = calloc(1, sizeof(*item));
+	if (item == NULL)
+		return (0);
+	item->next = table[hash];
+	item->s = *s;
+	table[hash] = item;
 	return (0);
 }
 
@@ -1749,6 +1796,9 @@ check(char *zone, char *ns, char *address, struct summary *parent, int port) {
 		s->sin_addr = addr;
 		fd = udp4;
 	} else
+		return;
+
+	if (unique && sentto(&storage))
 		return;
 
 	if (fd == -1)
@@ -3631,7 +3681,7 @@ main(int argc, char **argv) {
 	int on = 1;
 	int port = 53;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:jLm:nopP:r:RstT")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:jLm:nopP:r:RstTu")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -3698,6 +3748,7 @@ main(int argc, char **argv) {
 				printf("%s\n", opts[i].name);
 			}
 			exit (0);
+		case 'u': unique = 1; break;
 		default:
 			printf("usage: genreport [-46abBcdeEfjLnopstT] "
 			       "[-i test] [-I test] [-m maxoutstanding] "
@@ -3727,6 +3778,7 @@ main(int argc, char **argv) {
 			printf("\t-s: serialize tests\n");
 			printf("\t-t: type tests (serial)\n");
 			printf("\t-T: print type list for type test (-t)\n");
+			printf("\t-u: unique IP address\n");
 			exit(0);
 		}
 	}
