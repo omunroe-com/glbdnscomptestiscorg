@@ -124,6 +124,8 @@ static int recursive = 0;
 static long long sent;
 static int json = 0;
 static int unique = 0;
+static int useglue = 0;
+static int glueonly = 0;
 
 static char *jdata = NULL;
 static size_t jdata_len = 0;
@@ -3075,6 +3077,81 @@ connecttoserver(struct workitem *item) {
 	startread(item);
 }
 
+struct linked_address {
+	struct linked_address *next;
+	char *address;
+};
+
+static struct glue {
+	struct glue *next;
+	char *name;
+	struct linked_address *addrs;
+} *gluetable[100000];
+
+static struct glue *
+findglue(char *ns) {
+	unsigned int hash = 0;
+	struct glue *item;
+	char *t = ns;
+	while (*t != 0) {
+		hash = hash << 3 | hash >> 29;
+		hash ^= (*t++ & 0x5f); /* ignore case */
+	}
+
+	hash %= 100000;
+	for (item = gluetable[hash]; item != NULL; item = item->next) {
+		if (strcasecmp(ns, item->name) == 0)
+			break;
+	}
+	return (item);
+}
+
+void
+saveglue(char *ns, char *address) {
+	unsigned int hash = 0;
+	struct glue *item;
+	struct linked_address *la;
+	char *t = ns;
+
+	while (*t != 0) {
+		hash = hash << 3 | hash >> 29;
+		hash ^= (*t++ & 0x5f); /* ignore case */
+	}
+	
+
+	hash %= 100000;
+	for (item = gluetable[hash]; item != NULL; item = item->next) {
+		if (strcasecmp(ns, item->name) == 0)
+			break;
+	}
+	if (item == NULL) {
+		item = calloc(1, sizeof(*item));
+		if (item == NULL)
+			return;
+		item->name = strdup(ns);
+		if (item->name == NULL) {
+			free(item);
+			return;
+		}
+		item->next = gluetable[hash];
+		gluetable[hash] = item;
+	}
+	for (la = item->addrs; la != NULL; la = la->next) {
+		if (strcasecmp(la->address, address) == 0)
+			return;
+	}
+	la = calloc(1, sizeof(*la));
+	if (la == NULL)
+		return;
+	la->address = strdup(address);
+	if (la->address == NULL) {
+		free(la);
+		return;
+	}
+	la->next = item->addrs;
+	item->addrs = la;
+}
+
 /*
  * Read zone [server [address]]
  */
@@ -3108,6 +3185,31 @@ readstdin(int fd, int port) {
 			check(zone, ns, "::1", NULL, port);
 	} else if (n == 2) {
 		struct summary *summarya, *summaryaaaa;
+		struct sockaddr_storage storage;
+		struct in_addr addr;
+		struct in6_addr addr6;
+	
+		memset(&storage, 0, sizeof(storage));
+		if (useglue && inet_pton(AF_INET6, ns, &addr6) == 1) {
+			saveglue(zone, ns);
+			return;
+		}
+		if (useglue && inet_pton(AF_INET, ns, &addr) == 1) {
+			saveglue(zone, ns);
+			return;
+		}
+
+		if (useglue) {
+			struct glue *glue;
+			struct linked_address *la;
+			glue = findglue(ns);
+			if (glue) {
+				for (la = glue->addrs; la != NULL; la = la->next)
+					check(zone, ns, la->address, NULL, port);
+			}
+			if (glueonly)
+				return;
+		}
 
 		/*
 		 * Cross link A/AAAA lookups so that we can generate
@@ -3681,7 +3783,7 @@ main(int argc, char **argv) {
 	int on = 1;
 	int port = 53;
 
-	while ((n = getopt(argc, argv, "46abBcdDeEfi:I:jLm:nopP:r:RstTu")) != -1) {
+	while ((n = getopt(argc, argv, "46abBcdDeEfgGi:I:jLm:nopP:r:RstTu")) != -1) {
 		switch (n) {
 		case '4': ipv4only = 1; ipv6only = 0; break;
 		case '6': ipv6only = 1; ipv4only = 0; break;
@@ -3699,6 +3801,8 @@ main(int argc, char **argv) {
 		case 'e': what |= EDNS; break;
 		case 'E': ednsonly = 1; break;
 		case 'f': what |= EDNS | FULL; break;
+		case 'g': useglue = 1; break;
+		case 'G': glueonly = 1; break;
 		case 'i': what = EXPL;
 			  for (i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
 				if (strcasecmp(opts[i].name, optarg) == 0)
@@ -3750,7 +3854,7 @@ main(int argc, char **argv) {
 			exit (0);
 		case 'u': unique = 1; break;
 		default:
-			printf("usage: genreport [-46abBcdeEfjLnopstT] "
+			printf("usage: genreport [-46abBcdeEfgGjLnopstT] "
 			       "[-i test] [-I test] [-m maxoutstanding] "
 			       "[-r server]\n");
 			printf("\t-4: IPv4 servers only\n");
@@ -3764,6 +3868,9 @@ main(int argc, char **argv) {
 			printf("\t-e: edns test\n");
 			printf("\t-E: EDNS only\n");
 			printf("\t-f: add full mode tests (incl edns)\n");
+			printf("\t-g: look for glue (nameserver, address pairs)\n");
+			printf("\t    then qualify matching zone, ns pairs\n");
+			printf("\t-G: only use glue to qualify zone, ns pairs\n");
 			printf("\t-i: individual test\n");
 			printf("\t-I: remove individual test\n");
 			printf("\t-j: emit json\n");
