@@ -65,6 +65,12 @@ Options are order dependent.
 **-f**
 : add full mode tests (includes edns).
 
+**-g**
+: look for glue (nameserver, address pairs) then qualify matching zone, ns pairs.
+
+**-G**
+: only use glue to qualify zone, ns pairs.
+
 **-i test**
 : add a individual test.
 
