@@ -3092,7 +3092,9 @@ static struct glue *
 findglue(char *ns) {
 	unsigned int hash = 0;
 	struct glue *item;
-	char *t = ns;
+	char buf[1024], *t = buf;
+	
+	ns_makecanon(ns, buf, sizeof(buf));
 	while (*t != 0) {
 		hash = hash << 3 | hash >> 29;
 		hash ^= (*t++ & 0x5f); /* ignore case */
@@ -3100,7 +3102,7 @@ findglue(char *ns) {
 
 	hash %= 100000;
 	for (item = gluetable[hash]; item != NULL; item = item->next) {
-		if (strcasecmp(ns, item->name) == 0)
+		if (strcasecmp(buf, item->name) == 0)
 			break;
 	}
 	return (item);
@@ -3111,24 +3113,24 @@ saveglue(char *ns, char *address) {
 	unsigned int hash = 0;
 	struct glue *item;
 	struct linked_address *la;
-	char *t = ns;
+	char buf[1024], *t = buf;
 
+	ns_makecanon(ns, buf, sizeof(buf));
 	while (*t != 0) {
 		hash = hash << 3 | hash >> 29;
 		hash ^= (*t++ & 0x5f); /* ignore case */
 	}
-	
 
 	hash %= 100000;
 	for (item = gluetable[hash]; item != NULL; item = item->next) {
-		if (strcasecmp(ns, item->name) == 0)
+		if (strcasecmp(buf, item->name) == 0)
 			break;
 	}
 	if (item == NULL) {
 		item = calloc(1, sizeof(*item));
 		if (item == NULL)
 			return;
-		item->name = strdup(ns);
+		item->name = strdup(buf);
 		if (item->name == NULL) {
 			free(item);
 			return;
